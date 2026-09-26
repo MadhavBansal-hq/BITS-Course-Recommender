@@ -1,0 +1,29 @@
+# raw source data — supplied locally, not committed (large + not ours to redistribute)
+data/raw/
+
+# but keep the directory structure visible
+!data/raw/.gitkeep
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# env / secrets
+.env
+*.key
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/
+.idea/
+
+# build artifacts
+data/processed/*.tmp
+*.log
