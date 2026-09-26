@@ -49,6 +49,10 @@ DETAIL_RE = re.compile(
     re.VERBOSE,
 )
 
+# Fallback: an instructor name with nothing else after it (project/thesis
+# style courses — no fixed room/slot, just an instructor-in-charge).
+INSTRUCTOR_ONLY_RE = re.compile(r"^\s*(?P<instructor>[A-Za-z][A-Za-z.\s()'-]+?)\s*$")
+
 CO_INSTRUCTOR_RE = re.compile(r"^\s{40,}(?P<name>[A-Za-z][A-Za-z.\s()'-]+)\s*$")
 
 # Recurring column-header / boilerplate fragments that repeat at the top of
@@ -198,6 +202,13 @@ def _fill_detail(rec: TimetableSection, rest: str) -> None:
         rec.midsem_session = dm.group("midsem_session")
         rec.compre_date = dm.group("compre_date")
         rec.compre_session = dm.group("compre_session")
+        return
+
+    # No room/slot at all — likely a project/thesis-style course where only
+    # an instructor-in-charge is listed (see docs/EXTRACTION_NOTES.md).
+    io = INSTRUCTOR_ONLY_RE.match(rest)
+    if io and not _is_header_junk(rest):
+        rec.instructors.append(io.group("instructor").strip())
 
 
 def main() -> None:
