@@ -1,8 +1,9 @@
 # raw source data — supplied locally, not committed (large + not ours to redistribute)
-data/raw/
-
-# but keep the directory structure visible
+data/raw/*
 !data/raw/.gitkeep
+!data/raw/handouts/
+data/raw/handouts/*
+!data/raw/handouts/.gitkeep
 
 # python
 __pycache__/
