@@ -10,26 +10,33 @@ import subprocess
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
+# Section codes come in two forms: a plain lecture/tutorial/practical code
+# (L1, T2, P14) and a combined lecture+tutorial-group code (L1T1, L2T7 —
+# "tutorial group 1 of lecture section L1"). The combined form must be
+# tried first or it gets mis-split into "L1" + a garbage remainder — see
+# docs/EXTRACTION_NOTES.md.
+_SEC_CODE = r"L\d+T\d+|L\d+|T\d+|P\d+"
+
 COURSE_ROW_RE = re.compile(
-    r"""^\s*
-    (?P<com_cod>\d{3,5})\s+
-    (?P<course_code>[A-Z]{2,6}\s+[A-Z]?\d{3}[A-Z]?T?)\s+
+    rf"""^\s*
+    (?P<com_cod>\d{{3,5}})\s+
+    (?P<course_code>[A-Z]{{2,6}}\s+[A-Z]?\d{{3}}[A-Z]?T?)\s+
     (?P<title>.+?)\s+
     (?P<l>[\d\-])\s+
     (?P<p>[\d\-])\s+
     (?P<t>[\d\-])\s+
     (?P<s>[\d\-])\s+
     (?P<u>[\d\-]+)\s+
-    (?P<sec>L\d+|T\d+|P\d+)
+    (?P<sec>{_SEC_CODE})
     (?P<rest>.*)$
     """,
     re.VERBOSE,
 )
 
 SECTION_ROW_RE = re.compile(
-    r"""^\s*
+    rf"""^\s*
     (?:Tutorial|Practical)?\s*
-    (?P<sec>L\d+|T\d+|P\d+)\s*
+    (?P<sec>{_SEC_CODE})\s*
     (?P<rest>.*)$
     """,
     re.VERBOSE,
