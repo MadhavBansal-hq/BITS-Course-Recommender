@@ -51,6 +51,20 @@ DETAIL_RE = re.compile(
 
 CO_INSTRUCTOR_RE = re.compile(r"^\s{40,}(?P<name>[A-Za-z][A-Za-z.\s()'-]+)\s*$")
 
+# Recurring column-header / boilerplate fragments that repeat at the top of
+# every page and can land in the same indentation band as a co-instructor
+# line when a course block spans a page break.
+_HEADER_JUNK_RE = re.compile(
+    r"^(CREDIT|MIDSEM|COMPRE|L\s+P\s+T\s+S|U/C|COURSE\s?(NO\.?|TITLE)|"
+    r"INSTRUCTOR|COM\s?COD|SEC|ROOM|DAYS\s?&\s?HOURS|DATE\s?&|SESSION)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_header_junk(line: str) -> bool:
+    collapsed = re.sub(r"\s+", " ", line.strip())
+    return bool(_HEADER_JUNK_RE.match(collapsed))
+
 COURSE_CODE_NORMALISE_RE = re.compile(r"\s+")
 
 
@@ -154,7 +168,7 @@ def parse_timetable(pdf_path: Path) -> list[TimetableSection]:
                 continue
 
             co = CO_INSTRUCTOR_RE.match(raw_line)
-            if co and current is not None:
+            if co and current is not None and not _is_header_junk(raw_line):
                 current.instructors.append(co.group("name").strip())
                 continue
 
