@@ -231,10 +231,40 @@ in 537 of 540 handouts, usually a numbered or tabular list of components with
 a percentage weight each. It is the natural first target for the handout
 parser.
 
+### What the handout parser does with this
+
+`parse_handouts.py` reads the evaluation table by position: tokens go to the
+header column they sit under, since a percentage can sit in the Duration
+column ("70% classes", GS F212). Layouts it handles, each pinned by a test:
+
+- headers split over two or three lines ("EC / Evaluation / Component" next
+  to "Weightage (%)", BITS F113), and misspelt ones ("Weitage", BIO G512);
+- vertically centred cells: a component name printed above and below its
+  row goes to the row with no name of its own, otherwise to the previous
+  row;
+- numbered rows ("2. Comprehensive Exam ...") are rows, not a new section,
+  when they carry a weight; weights like "25 %", "7.5%", "20*", "5#";
+  weights given as marks are converted to percent (flagged);
+- "Total" / "Grand Total" rows are dropped;
+- midsem spellings: "Mid-Semester", "Mid - semester", "Mid. Semester", "Mid
+  Examination", "Mid- Sem".
+
+`has_midsem` / `has_compre` are True when such a component is listed, False
+only when the table is complete (95-105%) and clean (no mangled names, no
+"Closed Book" read as a component), and None otherwise. On the supplied
+handouts: 418 of 540 evaluation tables read, 352 complete; midsem verified
+for 375 handouts, "no midsem" for 23 (study projects, seminar, lab and
+workshop courses), unknown for 142. 38 handouts have no recognisable table
+and 2 have no text layer; all are flagged. Prerequisites: 31 handouts, of
+which 1 names a course (EEE F437: "Electronic Devices (F-214)"), 4 say none
+("NA") and 26 give only advice. Some files are named for a new-curriculum
+code but contain another course's handout (`BIO_U101` is BIO F101's); these
+mismatches are flagged for the joining step.
+
 ## Build order
 
 1. Timetable: the most regular document. Done.
 2. Bulletin Part IV, List of Courses. Done. Semester-wise patterns next.
-3. Handouts: least regular; needs the keyword-anchored extractor above.
+3. Handouts. Done (see above).
 4. Regulations: clean but prose-heavy; feeds the deterministic rule logic
    rather than the course schema.
