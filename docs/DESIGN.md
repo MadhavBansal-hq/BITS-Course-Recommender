@@ -51,21 +51,16 @@ timetable.bits-dvm.org:
 
 ## Open questions
 
-- **Batch-specific CDCs.** The bulletin's List of Courses has CS F320
-  (Foundations of Data Science) only as a discipline elective (COMPUTER
-  SCIENCE, IV-110; ROBOTICS AND INDUSTRIAL AUTOMATION, IV-122), but
-  timetable.bits-dvm.org shows it among the 2-1 CDCs of a current CS
-  student. Requirements can change between admission batches, and the brief
-  makes the supplied documents the source of truth. Plan: follow the
-  bulletin, show a note when the student's own record disagrees, and
-  re-check once the semester-wise patterns are parsed.
-- **Semester-wise patterns (IV-3–105)** are needed for CDC timing and for
-  common courses such as MATH F211, which appears there. Not parsed yet.
+- **CS F320 (decided): follow the bulletin.** It is a discipline elective for
+  COMPUTER SCIENCE (IV-110) and is not a named course in the CS semester-wise
+  pattern (IV-9), so it is not a CDC in this system, whatever other tools show.
+- **Dual-degree and 2+2 patterns** (IV-31–105, IV-142–223) are not parsed yet;
+  single-degree patterns are.
 - **OR alternatives** in core lists: either course satisfies the requirement,
   and units may be printed once per group.
-- **HUEL and OPEL rules.** IV-106 says which course groups count as
-  Humanities electives, and List of Courses has GENERAL STUDIES stream
-  lists; the open-elective rule still has to be read from the Regulations.
+- **HUEL pool (data gap).** The rules are extracted (IV-1, IV-2, Regulations
+  2.05), but no document lists which courses are humanities electives. A
+  course's HUEL status is "could not be verified" unless its handout says so.
 - **Minors** use "core" for the minor's own core courses; tagged by
   `bulletin_section`, they need their own rules.
 - **Joining timetable and bulletin**: split codes (`BITS F101-1` vs `BITS
@@ -73,5 +68,6 @@ timetable.bits-dvm.org:
   titles.
 - **2026-only sections**: offerings with com_cod >= 5000 must be excluded for
   students admitted before 2026.
-- **Prerequisites** are stated in 31 of 540 handouts and about ten places in
-  the bulletin; everything else is "could not be verified".
+- **Prerequisites (decided): only what the dataset states** (31 of 540
+  handouts, about ten bulletin mentions; timetable part VI is just a link).
+  Everything else is "could not be verified".

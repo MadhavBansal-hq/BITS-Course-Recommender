@@ -9,16 +9,17 @@ instead of guessing.
 
 ## Status
 
-Work in progress. The pre-processing layer exists for two of the four source
-documents; everything after it is designed ([docs/DESIGN.md](docs/DESIGN.md))
-but not built yet.
+Work in progress; see the table. Next up: the handout parser and the requirement
+and eligibility engine. The full design is in [docs/DESIGN.md](docs/DESIGN.md).
 
 | Stage | Status |
 |---|---|
 | Timetable → section records (`src/ingest/parse_timetable.py`) | Done: 1,718 sections in 723 offerings; 14 tests |
 | Bulletin Part IV → course lists (`src/ingest/parse_bulletin.py`) | Done for *List of Courses* (per-branch core and discipline-elective lists); other Part IV tables only partly structured; 12 tests |
 | Handouts → evaluation, make-up, attendance, prerequisites | Not started |
-| Academic Regulations → programme rules | Not started |
+| Semester-wise patterns → named courses, elective slots, core and DEL requirements (`src/ingest/parse_semester_patterns.py`) | Done for all 28 first-degree programmes (IV-3 to IV-30); dual-degree and 2+2 patterns not yet |
+| Programme rules (`src/ingest/parse_programme_rules.py`) | Done: IV-1 category table, the four humanities heads, Regulations 2.04–2.08, timetable registration rules and hour legend, 167 course equivalences |
+| Timetable checks (`src/retrieval/timetable.py`) | Done: slot parsing, class and exam clashes, lunch-hour rule, avoid-hours / free-day, clash-free section search that explains why nothing fits |
 | Student profile, requirement analysis, eligibility, policy checks | Not started |
 | LLM layer (intent parsing, matching, explanations) and dashboard | Not started |
 
@@ -75,7 +76,9 @@ From the repository root:
 ```bash
 python -m src.ingest.parse_timetable   # a few seconds
 python -m src.ingest.parse_bulletin    # about a minute (254 pages)
-python -m pytest                       # 26 tests, about 75 s
+python -m src.ingest.parse_semester_patterns
+python -m src.ingest.parse_programme_rules
+python -m pytest                       # 37 tests, about 2 minutes
 python -m pytest -m "not slow"         # skips the full-bulletin test
 ```
 
@@ -89,6 +92,8 @@ Written to `data/processed/` (not committed; regenerate with the commands above)
 |---|---|---|
 | `timetable.json` | section | offering (`com_cod`), course, credits, instructors, room, days & hours, midsem and compre date and session, cancelled, 2026-admissions-only flag, source page |
 | `bulletin_courses.json` | course listing in Part IV | code, title, L-P-U, category (`core` / `discipline_elective`), the list heading it appears under (usually the branch), OR alternative, cross-listed codes, Part IV section, source page |
+| `semester_patterns.json` | programme | named courses by year and term (with OR alternatives), elective slots and amounts, discipline core / elective requirement from the page footer, anything unresolved |
+| `programme_rules.json` | whole dataset | IV-1 category table, humanities heads, Regulations 2.04–2.08 verbatim, registration rules, hour and exam-session legend, equivalent courses, known gaps |
 | `timetable_needs_verification.json`, `bulletin_needs_verification.json` | flagged item | what the parser saw but could not extract confidently, with page and raw text |
 
 Nothing is silently dropped or guessed: anything uncertain lands in a
@@ -110,7 +115,7 @@ verified".
 
 ```
 src/ingest/        parsers: source PDFs → data/processed/*.json
-src/retrieval/     (planned) requirement analysis, eligibility, policy checks
+src/retrieval/     timetable checks; (planned) requirement analysis, eligibility
 src/dashboard/     (planned) the student-facing app
 scripts/           investigation scripts (locating bulletin Part IV)
 tests/             correctness tests against the real PDFs

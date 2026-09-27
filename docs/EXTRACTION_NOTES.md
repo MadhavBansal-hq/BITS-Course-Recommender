@@ -79,13 +79,16 @@ Result on the supplied bulletin: 1,589 List of Courses records (1,153
 discipline electives, 406 core, 30 audit), none with another course's code
 inside its title; 7,297 records across all of Part IV.
 
-**Not handled yet: semester-wise pattern grids (IV-3–105).** A different
-table shape (year and semester columns, "Elective" placeholders, "or"
-choices). They matter later, because they say which courses a branch takes in
-which semester (e.g. MATH F211 appears there). Their records are emitted with
-`bulletin_section` set, so they aren't mistaken for list entries; most of the
-7,000+ dropped lines in `bulletin_needs_verification.json` come from these
-grids and from prose.
+**Semester-wise patterns (IV-3–30, one page per first-degree programme)** are
+parsed by `parse_semester_patterns.py` (grid layout in its docstring): named
+courses by year and term, OR alternatives, elective slots, and a footer stating
+the programme's requirement, e.g. B.E. Computer Science (IV-9): Discipline Core
+48 units (14 courses), Discipline Electives 12 units (4 courses). Some pages
+have no footer (the DEL requirement then falls back to the sum of the page's
+discipline-elective slots), and on four pages the slots and the footer disagree
+(Robotics: 21 vs 12); both cases are recorded in `unresolved`, footer used.
+Dual-degree (IV-31–105) and 2+2 (IV-142–223) patterns use other layouts and are
+not parsed yet.
 
 **Course descriptions (Parts VI/VII) are not in this PDF**; they are printed
 as "See enclosed CD for Contents". Handouts are the only syllabus source.
@@ -98,6 +101,31 @@ none for most courses.
 
 **Requirements can differ by batch.** See the CS F320 question in
 [DESIGN.md](DESIGN.md).
+
+## Where the elective rules come from
+
+- **Bulletin IV-1**: the category-wise structure of every first-degree
+  programme (units, courses): Humanities Electives 8 (3); Discipline Core 33–48
+  (10–16) and Electives 12–27 (4–9); Open Electives 15–27 (5–9); course-work
+  129 (41) minimum. Per-programme exact core and DEL numbers are on each
+  semester-wise pattern page.
+- **Bulletin IV-2**: courses under four heads meet the Humanities Electives
+  requirement: Languages and Literature; History and Philosophy; Political and
+  Social Sciences; Fine Arts and Professional Arts.
+- **Regulations 2.04–2.08**: named courses (those in the semester-wise pattern)
+  are compulsory; electives are Discipline, Humanities or Open; an elective is
+  treated as Open once the DEL and HUEL requirements are accounted for; up to
+  four electives beyond the prescribed number; a higher-degree course counts as
+  an Open Elective unless it is in the programme's DEL pool.
+- **Timetable part VII**: keep a lunch hour (4, 5 or 6) free every day, compre
+  dates must not clash, at most four extra electives. The legend maps hours
+  1–10 to clock times (hour 1 = 8–8:50 AM) and gives exam-session times.
+- **Timetable part IX**: 167 equivalences (e.g. IS F213 counts as CS F213).
+- **Gaps.** No document lists the humanities courses themselves: timetable
+  part VIII refers to Bulletin Part IV, and Part IV names only the four heads.
+  Timetable part VI (prerequisites and restrictions) is only a link to the
+  academic website. So HUEL membership and most prerequisites can only be
+  what individual handouts state.
 
 ## timetable.pdf (153 pages)
 
