@@ -1,117 +1,212 @@
-# Extraction Notes
+# Extraction notes
 
-Findings from inspecting the actual source documents before writing any
-parser. Kept here so the reasoning behind the pipeline's design isn't lost —
-and so nobody re-discovers these the hard way.
+What the source documents actually look like, found by inspecting them before
+and while writing the parsers. Every number here was measured on the supplied
+files. The parsers' docstrings and tests point back to these sections.
 
 ## Academic-Regulations-2023.pdf (70 pages)
 
-Clean embedded text layer, no OCR needed. 13 numbered chapters, consistent
-heading style (`pdftotext` picks up "1. General", "2. Some Structural
-Features", etc. directly). Good candidate for straightforward
-section-by-number extraction.
+Clean embedded text layer, no OCR needed. 13 numbered chapters with a
+consistent heading style (`pdftotext` picks up "1. General", "2. Some
+Structural Features", etc. directly), so section-by-number extraction is
+straightforward.
 
-Defines *concepts* precisely (prerequisite = pair of courses with a specific
-grade requirement; prior preparation = a set of courses with a minimum
-grade; backlog = burden of past incomplete courses) but explicitly says the
-actual prerequisite *pairs* are catalogued in the Bulletin, not here.
+It defines concepts precisely (prerequisite = a pair of courses with a
+specific grade requirement; prior preparation = a set of courses with a
+minimum grade; backlog = the burden of past incomplete courses) but says the
+actual prerequisite pairs are catalogued in the Bulletin, not here.
 
-## bulletin.pdf (951 pages, 34 MB)
+## bulletin.pdf (951 pages)
 
-Clean text layer. Structure (Table of Contents, Parts I–VIII):
+Clean text layer, Parts I–VIII per its table of contents. Outside Part IV,
+most pages are institutional material (governance, admissions and fees,
+hostel listings) the recommender does not need.
 
-- Part IV ("Details of Programmes") has the real per-branch degree-plan
-  tables: course code, title, L-P-U units, grouped under "CORE COURSES" /
-  "DISCIPLINE ELECTIVE COURSES" headers, and a semester-by-semester layout
-  for the full degree. This is the primary source for `category` and
-  `units` in the Course schema.
-- Part VI/VII ("Course Descriptions", on-campus and off-campus) are **not
-  in this PDF** — literally printed as "See enclosed CD for Contents". Full
-  syllabi never existed in this file; that's what the handouts folder is
-  for.
-- Prerequisite pairs are almost never listed against a course in the
-  degree-plan tables. A full-text search across all 951 pages turns up on
-  the order of 10 explicit mentions (e.g. "Prerequisite: GER N101T",
-  "(with prerequisite: CE F211: Mechanics of Solids...)"), scattered as ad
-  hoc footnotes rather than a systematic column. Treat any prerequisite
-  claim sourced from the bulletin as high-confidence *when found*, but do
-  not expect to find one for most courses — that's expected, not a parser
-  bug.
-- Most of the page count is governance listings, admissions/fee schedules,
-  hostel/warden rosters, and ISU (international exchange) program tables —
-  irrelevant to recommendation and should be skipped/discarded during
-  ingestion rather than parsed.
+**Part IV ("Details of Programmes") is physical pages 209–462** (footers IV-1
+to IV-254, constant offset: IV-n is physical page n + 208).
+`scripts/find_bulletin_page_range.py` finds this from the footers (exactly
+one `IV-n` footer line per page). Part IV's own table of contents (physical
+page 9) splits it into sections; the parser tags every record with one:
+
+| IV pages | Section |
+|---|---|
+| 1–2 | programme structure (B.E. and dual degree) |
+| 3–30 | semester-wise patterns (B.E., B.Pharm., M.Sc., BBA) |
+| 31–105 | semester-wise patterns for dual degrees |
+| 106–128 | **List of Courses for B.E. / M.Sc. / B.Pharm.**: per-branch CORE COURSES and DISCIPLINE ELECTIVE COURSES |
+| 129–141 | minor programmes |
+| 142–223 | 2+2 international collaboration programmes |
+| 224–251 | higher degree programmes |
+| 252–254 | Ph.D. |
+
+**Two-column layout.** Most Part IV pages have two columns, and `pdftotext
+-layout` interleaves them row by row, so the parser uses pdfplumber word
+positions. How columns are found and assigned, and the three rules that were
+tried and rejected (with the page and word that broke each), is in the
+`parse_bulletin.py` module docstring. Two traps: an ALL-CAPS word in running
+text ("FRP") looks like a department prefix, and a course code mentioned once
+in prose or a footnote ("... in place of PHA F243" on IV-117) looks like the
+start of a column.
+
+**List of Courses (IV-106–128)** is the source for CDCs and discipline
+electives:
+
+- Lists continue from the left column into the right one and onto the next
+  page. A list header can be split over two lines ("DISCIPLINE ELECTIVE" /
+  "COURSES") or share a line with the "L P U" column heading.
+- The same course is listed under several branches with different
+  categories: CS F213 is core under COMPUTER SCIENCE and a discipline
+  elective under EEE, ECE, EIE and Robotics. A category means nothing
+  without its list heading.
+- Units appear as an L P U triple, a single U, `- - 3` (blank L and P), or
+  with a footnote star (`3*`).
+- "OR" rows mark alternatives (EEE core: MATH F212 or ME F344). In some OR
+  groups the units are printed once for the whole group (CHE F366 / F376 /
+  F491), so later members have none of their own. On IV-120 a line
+  "or or 3 1 4" between CS F211 and BITS F232 carries units whose owner is
+  ambiguous; it is flagged.
+- Cross-listed codes print as "CS G514/" followed by "SS G514".
+- Some elective lists have "Track - n" or "Pool-n" sub-headings.
+- IV-128 ends with a "List of Audit Type Courses" (N-coded, non-credit).
+  Their ALL-CAPS titles wrap above and below the row and look like list
+  headings. These 30 courses have no category.
+- The intro paragraph on IV-106 says which kinds of courses count towards
+  the Humanities electives requirement: courses normally listed under
+  languages and literature, history and philosophy, political and social
+  sciences, and fine and professional arts. A starting point for HUEL.
+
+Result on the supplied bulletin: 1,589 List of Courses records (1,153
+discipline electives, 406 core, 30 audit), none with another course's code
+inside its title; 7,297 records across all of Part IV.
+
+**Not handled yet: semester-wise pattern grids (IV-3–105).** A different
+table shape (year and semester columns, "Elective" placeholders, "or"
+choices). They matter later, because they say which courses a branch takes in
+which semester (e.g. MATH F211 appears there). Their records are emitted with
+`bulletin_section` set, so they aren't mistaken for list entries; most of the
+7,000+ dropped lines in `bulletin_needs_verification.json` come from these
+grids and from prose.
+
+**Course descriptions (Parts VI/VII) are not in this PDF**; they are printed
+as "See enclosed CD for Contents". Handouts are the only syllabus source.
+
+**Prerequisites are almost never tabulated.** A full-text search of all 951
+pages finds on the order of ten explicit mentions (e.g. "Prerequisite: GER
+N101T", "(with prerequisite: CE F211: Mechanics of Solids...)"), scattered as
+footnotes. Treat a bulletin prerequisite as reliable when found, but expect
+none for most courses.
+
+**Requirements can differ by batch.** See the CS F320 question in
+[DESIGN.md](DESIGN.md).
 
 ## timetable.pdf (153 pages)
 
-Clean text layer, regular tabular structure. First ~9 pages are the
-academic calendar (holidays, exam windows) — useful for a "dates" lookup but
-not per-course. From "II. COURSEWISE TIMETABLE" onward, each course block
-repeats a fixed column header (COM COD / COURSE NO / COURSE TITLE / CREDIT
-L-P-T-S-U / SEC / INSTRUCTOR / ROOM / DAYS & HOURS / MIDSEM / COMPRE), with
-one row per section (lecture, tutorial, practical) and "CANCLED" (sic) used
-verbatim for sections not running. Reliable to parse row-by-row with a
-regex once the header block for a course is located; no rasterization or
-OCR needed.
+Clean text layer, parsed from `pdftotext -layout` one page at a time. Its
+index lists four parts: I. Course Handout, II. Course wise Timetable,
+III. Textbooks, IV. courses that charge a course-wise fee. Only part II is
+parsed: the parser starts at "COURSEWISE TIMETABLE" and stops at "III. TEXT
+BOOKS". (Reading on used to attach textbook-list text such as "EQUIVALENT"
+to the last course, SW E102, as instructors.)
 
-## handouts/ (540 files, `<NNN>_<DEPT>_<CODE>.pdf`)
+Row grammar and quirks, each pinned by a test:
 
-Clean text layer throughout the sample checked (~24 files across 9+
-departments — BIO, CS, EEE, ECON, ME, CHEM, GS, MEL, CE, EE, MF, ECE, PHA,
-PHY, MATH, MAC, DE, BITS, FIN, MPBA). No OCR needed.
+- An offering starts with a 3–5 digit COM COD, then course code, title,
+  L P T S U, section, and details. Later rows of the same offering (L2, T1,
+  P3, ...) carry only a section and details, so the parser copies the
+  offering's com_cod, credits and exam dates down to them.
+- COM COD, not course code, identifies an offering: EEE G593 has 2144 and
+  6301.
+- Every coursewise page carries the note "Courses with com cod >=5000 are
+  meant only for 2026 admissions into FD, HD and PHD and not for others".
+  442 of 1,718 sections fall under it.
+- Section codes: `L1`, `T2`, `P14`; combined lecture+tutorial-group codes
+  (`L1T1` = tutorial group 1 of L1, e.g. MGTS U102); suffixed codes (`L1AJ`,
+  `L2RM` on BITS F240).
+- Split course codes: `BITS F101-1`, `BITS K101-1` (the bulletin writes
+  `BITS F101`, so joining the two needs the suffix handled).
+- The details are columns separated by 2+ spaces, and any can be blank:
+  project courses list only an instructor-in-charge (BIO F266), some sections
+  list a room and slot but no instructor (FIN F212 L1), some only a slot.
+  Positional parsing shifted columns into the wrong fields, so each column
+  is classified by its shape.
+- Hours can run together: `M 789` is Monday hours 7, 8 and 9.
+- Rooms: `5102`, `6159A`, `3254_I`, and day-specific rooms like `6108(T)`. A
+  day-specific room cell can span three lines ("6161(T)" above CHE F335's
+  row, "6151(M" on it, "W)" below). The off-row lines are flagged (37 of
+  them) because the section they belong to is ambiguous.
+- "CANCLED" (sic) marks a cancelled section; one still prints an instructor
+  on the next line (ME G532, offering 6441).
+- Co-instructors appear on their own deeply indented lines; the column
+  headings repeated at page breaks land in the same band and are filtered.
+- Exam dates: the first date+session is the midsem, the second the compre.
+  No course row here has only one; three practical sections (BITS F110 P4,
+  CS F303 P1, PHA F342 P1) print one extra date+session of their own, which
+  is flagged rather than interpreted.
+- One course row doesn't fit L P T S U (EEE G593, offering 6301: credits
+  "5 - - 15"). It and the practical row under it are flagged, not attached to
+  the 2144 offering.
 
-**Section labels are semantically consistent but positionally inconsistent.**
-Every handout has *some* form of "Evaluation Scheme" and, in most cases,
-"Make-up Policy" and "Notices" — but:
+Result: 1,718 sections, 723 offerings, 585 course codes. All 724 course rows
+in part II are accounted for (723 parsed, 1 flagged); 48 items flagged in
+total.
 
-- Numbering varies: "Attendance Policy" appears as section 7, 8, 9, or 11
-  depending on the handout; some handouts have no numbers at all.
-- Section presence varies: "Attendance Policy" and "Prerequisites" sections
-  are frequently **absent entirely**, not just unlabelled. Of the sampled
-  handouts, prerequisites were stated in roughly 1 in 8; across the full
-  540, a full-text scan found the words "prerequisite"/"pre-requisite" in
-  only 31 files (~6%).
-- Label spelling/casing varies ("Make-up Policy", "Makeup Policy", "MAKE-UP",
-  "Make up policy").
-- A few handouts (observed in ~3/24 sampled) use bulleted lists built with a
-  zero-width space (`\u200b`) after the number instead of a period+space,
-  e.g. `2.\u200b Text Book` — this silently breaks naive `^\d+\.\s` regexes.
-  **Normalize by stripping `\u200b` (and other zero-width/invisible
-  Unicode characters) before running any section-header regex.**
-- A few handouts have no numbered sections at all and rely purely on
-  bold/keyword prose headers ("Course Description:", with no leading
-  number) — the extractor must match on the keyword phrase, with the
-  number treated as optional, not required.
+## handouts/ (540 files, `NNN_DEPT_CODE.pdf`)
 
-**Design consequence:** section extraction must be
-keyword-anchored (match on the section title text — "Attendance Policy",
-"Make-up", "Prerequisite(s)", "Evaluation Scheme", case-insensitive, ignoring
-leading numbering/bullets) and must tolerate a section being genuinely
-absent. A missing section is `confidence: "unverified"`, not an extraction
-failure to retry.
+540 handouts across 33 department codes, all with a text layer except two
+that yield almost no text (`348_MAC_F214.pdf`, `362_MATH_F214.pdf`; they will
+need OCR or a flag).
 
-**Prerequisite phrasing is not uniform in strength** even when present:
-some are a hard course-code gate ("Pre-requisite of the Course: Electronic
-Devices (F-214)"), others are advisory background reading ("a basic
-understanding of probability theory... would be helpful" / "is self-
-contained, however..."). The extractor should classify these into
-`hard_course_code` vs `soft_recommendation` (see `docs/SCHEMA.md`) rather
-than treating every match as a hard eligibility gate — an advisory
-prerequisite must not block a student from an otherwise-eligible course.
+Keyword mentions across all 540. A mention is not a structured section, but
+it bounds how often a property can be extracted at all:
 
-**Evaluation Scheme** is the most reliably structured section — present in
-effectively every handout sampled, and formatted as a numbered/tabular list
-of components with a `%` weightage each. This is the best field to build
-confidence-scoring around first.
+| Keyword (case-insensitive) | Handouts |
+|---|---|
+| evaluation | 537 |
+| mid-sem / midsem / mid sem | 498 |
+| compre / comprehensive | 484 |
+| make-up / makeup / make up | 456 |
+| attendance | 219 |
+| prerequisite / pre-requisite | 31 |
 
-## Practical implication for parsing order
+So attendance rules can be stated for well under half of the courses and
+prerequisites for about 6%; everything else must surface as "could not be
+verified". A handout that never says "mid-sem" is not evidence that a course
+has no midsem (other wording exists), so "no midsem" needs a positive
+statement or the timetable's exam columns.
 
-Given the above, the sensible build order is:
-1. Timetable (most regular, lowest ambiguity) — validates the basic PDF→
-   structured-record pipeline end to end.
-2. Bulletin Part IV degree-plan tables (regular per-branch, but needs
-   department-section boundary detection across ~950 pages).
-3. Handouts (least regular — needs the keyword-anchored, tolerant-of-absence
-   extractor described above).
-4. Regulations (clean but prose-heavy — mostly feeds deterministic rule
-   logic in `src/retrieval/`, not the Course/Handout schema).
+**Section labels are consistent in meaning, not in position** (from reading a
+sample of handouts by hand):
+
+- Numbering varies ("Attendance Policy" is section 7, 8, 9 or 11 depending
+  on the handout), and some handouts are unnumbered, relying on keyword
+  headers ("Course Description:").
+- Label spelling varies: "Make-up Policy", "Makeup Policy", "MAKE-UP", "Make
+  up policy".
+- 23 handouts contain zero-width spaces (U+200B). In 180_CS_G527 one sits
+  after each list number (`2.\u200b Text Book`), which breaks naive
+  `^\d+\.\s` regexes. Strip zero-width characters before matching headers.
+
+**Design consequence:** section extraction must be keyword-anchored (match the
+section title text, case-insensitive, ignoring numbering and bullets) and must
+tolerate a section being genuinely absent. A missing section is
+`confidence: "unverified"`, not a failure to retry.
+
+**Prerequisite wording varies in strength.** Some are a hard course-code gate
+("Pre-requisite of the Course: Electronic Devices (F-214)"), others advisory
+("a basic understanding of probability theory... would be helpful"). The
+extractor should classify them as `hard_course_code` or `soft_recommendation`
+(see `docs/SCHEMA.md`); an advisory note must not block an otherwise eligible
+student.
+
+**The evaluation scheme is the most reliably structured section**: mentioned
+in 537 of 540 handouts, usually a numbered or tabular list of components with
+a percentage weight each. It is the natural first target for the handout
+parser.
+
+## Build order
+
+1. Timetable: the most regular document. Done.
+2. Bulletin Part IV, List of Courses. Done. Semester-wise patterns next.
+3. Handouts: least regular; needs the keyword-anchored extractor above.
+4. Regulations: clean but prose-heavy; feeds the deterministic rule logic
+   rather than the course schema.
