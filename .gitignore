@@ -25,6 +25,9 @@ Thumbs.db
 .vscode/
 .idea/
 
-# build artifacts
-data/processed/*.tmp
+# build artifacts — regenerated from data/raw/ by src/ingest/*.py, not
+# committed (keeps diffs meaningful and avoids re-run noise); run the
+# ingest scripts locally after cloning to produce these
+data/processed/*
+!data/processed/.gitkeep
 *.log
