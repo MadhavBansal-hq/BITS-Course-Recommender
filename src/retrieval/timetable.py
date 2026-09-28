@@ -94,7 +94,7 @@ def find_schedules(offerings: dict[str, list[dict]], valid_hours: set[int], lunc
     """Clash-free combinations of sections, one valid pick per offering,
     with no exam clash, a free lunch hour every day, and the preferences
     honoured. Returns up to `limit`, most compact first (fewest teaching
-    days, then fewest slots).
+    days, then fewest free hours between classes, then fewest slots).
 
     Offerings with the fewest options are placed first and every constraint
     is checked as soon as a pick is added, so dead ends are cut early. The
@@ -129,8 +129,12 @@ def find_schedules(offerings: dict[str, list[dict]], valid_hours: set[int], lunc
             return
         state["nodes"] += 1
         if i == len(order):
+            by_day: dict[str, list[int]] = defaultdict(list)
+            for d, h in used:
+                by_day[d].append(h)
+            gaps = sum(max(hs) - min(hs) + 1 - len(hs) for hs in by_day.values())
             results.append({"sections": {n: [s["section"] for s in p] for n, p in chosen},
-                            "days": len({d for d, _ in used}), "slots": len(used)})
+                            "days": len(by_day), "gaps": gaps, "slots": len(used)})
             return
         n = order[i]
         if ex & exams[n]:
@@ -145,7 +149,7 @@ def find_schedules(offerings: dict[str, list[dict]], valid_hours: set[int], lunc
     rec(0, [], frozenset(), frozenset())
     if stats is not None:
         stats.update(state)
-    results.sort(key=lambda r: (r["days"], r["slots"]))
+    results.sort(key=lambda r: (r["days"], r["gaps"], r["slots"]))   # compact first
     return results[:limit]
 
 
@@ -165,8 +169,8 @@ def blocked_by_preferences(offerings: dict[str, list[dict]], valid_hours: set[in
         if not ok:
             why = []
             if avoid_hours:
-                why.append(f"every section combination meets in hour(s) {sorted(avoid_hours)}")
+                why.append(f"meets in hour(s) {sorted(avoid_hours)}")
             if free_day:
-                why.append(f"or on {free_day}")
-            blocked[name] = " ".join(why) or "no live sections"
+                why.append(f"meets on {free_day}")
+            blocked[name] = ("every section combination " + " or ".join(why)) if why else "no live sections"
     return blocked

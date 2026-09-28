@@ -183,7 +183,9 @@ def build(root: Path) -> dict:
     raw = root / "data" / "raw"
     bulletin, regs, tt = _text(raw / "bulletin.pdf"), _text(raw / "Academic-Regulations-2023.pdf"), _text(raw / "timetable.pdf")
     parts = timetable_parts(tt)
+    campus = re.search(r"\b(PILANI|GOA|HYDERABAD|DUBAI)\s+CAMPUS\b", " ".join(tt[:3]), re.I)
     return {
+        "data_campus": {"campus": campus[1].title() if campus else None, "source": {"doc": "timetable", "page": "1-3"}},
         "category_structure": category_structure(bulletin),
         "humanities": {**humanities_heads(bulletin), "pool": parts.get("humanities_pool")},
         "regulations": regulation_clauses(regs),

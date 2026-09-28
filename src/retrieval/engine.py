@@ -93,6 +93,11 @@ class Engine:
             self.notes.append(f"Minor '{profile.minor}' is not analysed: minor programme rules are not parsed yet.")
         if profile.dual_degree:
             self.notes.append("Dual-degree requirements are not analysed: dual-degree patterns are not parsed yet.")
+        data_campus = (ds.rules.get("data_campus") or {}).get("campus")
+        self.campus_ok = not data_campus or profile.campus.strip().lower() == data_campus.lower()
+        if not self.campus_ok:
+            self.notes.append(f"The supplied timetable and handouts are for {data_campus} campus; you are at "
+                              f"{profile.campus}, so this semester's offerings do not apply to you.")
         if self.heading is None:
             self.notes.append(f"No List of Courses heading matches '{profile.programme}', so its CDC and DEL "
                               "lists are unknown.")
@@ -145,7 +150,10 @@ class Engine:
         # are not course-work (IV-1 lists them separately).
         cw = iv1.get("Course-work Sub-Total", {})
         cw_units, cw_courses = _range_min(cw.get("units")), _range_min(cw.get("courses"))
-        is_ps = lambda r: r["term"] == "summer" or any(o.endswith("T") for o in r["options"]) or _units(r["units"]) >= 9
+        # PS-I (summer) and PS-II / thesis (IV-1 lists them outside course-work:
+        # 20 and 9-20 units). A "T" suffix is not used: the bulletin legend
+        # says it marks a non-letter grade, not a thesis.
+        is_ps = lambda r: r["term"] == "summer" or _units(r["units"]) >= 9
         named_cw = [r for r in named_rows if not is_ps(r)]
         named_units = sum(_units(r["units"]) for r in named_cw)
         op = iv1.get("Open Electives", {})
@@ -190,10 +198,24 @@ class Engine:
         if pr["kind"] == "soft_recommendation":
             return {"status": "advisory only", "detail": pr["text"][:160], "source": f"handout {h['file']} p{pr['page']}"}
         dept = code.split()[0]
-        need = {f"{d} {n}" for d, n in CODE_RE.findall(pr["text"])} | \
-               {f"{dept} {a}{n}" for a, n in SHORT_CODE_RE.findall(pr["text"])}
+        need = {f"{d} {n}" for d, n in CODE_RE.findall(pr["text"])}
+        # "Electronic Devices (F-214)": the department is implied. Accept the
+        # course's own department only if that course's title matches the
+        # words printed before the number; otherwise don't guess.
+        for m in SHORT_CODE_RE.finditer(pr["text"]):
+            guess = f"{dept} {m[1]}{m[2]}"
+            before = set(re.findall(r"[a-z]{4,}", pr["text"][max(0, m.start() - 60):m.start()].lower()))
+            title = set(re.findall(r"[a-z]{4,}", (self.ds.titles.get(guess) or "").lower()))
+            if before & title:
+                need.add(guess)
+            else:
+                return {"status": "could not be verified", "source": f"handout {h['file']} p{pr['page']}",
+                        "detail": f"names a course without its department ({m.group()}); {guess} does not "
+                                  f"match the printed title"}
+        unknown = sorted(c for c in need if c not in self.ds.titles)
         missing = sorted(c for c in need if c not in self.done)
         return {"status": "met" if not missing else "not met", "requires": sorted(need), "missing": missing,
+                "unknown_codes": unknown,
                 "detail": pr["text"][:160], "source": f"handout {h['file']} p{pr['page']}"}
 
     def _category(self, code, named_codes, h) -> tuple[str, str]:
@@ -241,6 +263,8 @@ class Engine:
             h = self._handout(code)
             cat, why = self._category(code, named_codes, h)
             blockers = []
+            if not self.campus_ok:
+                blockers.append("offered at another campus")
             if code in self.done:
                 blockers.append("already completed (or an equivalent)")
             if code in self.now:
@@ -257,7 +281,7 @@ class Engine:
             pre = self._prereq(code, h)
             if pre["status"] == "not met":
                 blockers.append(f"prerequisite not met: {', '.join(pre['missing'])}")
-            fits, exam_clash = None, []
+            fits, exam_clash, suggested = None, [], None
             if secs and not blockers:
                 exam_clash = [f"{w} {d} {sess} with {cur_exams[(w, d, sess)]}"
                               for w in ("midsem", "compre") if (d := secs[0][f"{w}_date"])
@@ -268,6 +292,8 @@ class Engine:
                     # True: a clash-free set of sections exists; False: proven impossible;
                     # None: search budget reached, not determined
                     fits = True if found else (False if st["complete"] else None)
+                    if found:   # a feasible section, even if other sections clash
+                        suggested = found[0]["sections"][code]
                 elif exam_clash:
                     fits = False
             out.append({
@@ -275,7 +301,8 @@ class Engine:
                 "category": cat, "category_basis": why, "pattern_slot": slot_of.get(code),
                 "listed_for_first_degree": code in first_degree,
                 "eligible": not blockers, "blocked_by": blockers,
-                "prerequisite": pre, "fits_current_timetable": fits, "exam_clashes": exam_clash,
+                "prerequisite": pre, "fits_current_timetable": fits, "suggested_sections": suggested,
+                "exam_clashes": exam_clash,
                 "handout": None if not h else {
                     "file": h["file"], "joined_via": h.get("joined_via"),
                     "has_midsem": h["has_midsem"], "has_midsem_basis": h["has_midsem_basis"],
