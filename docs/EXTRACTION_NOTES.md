@@ -260,16 +260,38 @@ column ("70% classes", GS F212). Layouts it handles, each pinned by a test:
   Examination", "Mid- Sem".
 
 `has_midsem` / `has_compre` are True when such a component is listed, False
-only when the table is complete (95-105%) and clean (no mangled names, no
-"Closed Book" read as a component), and None otherwise. On the supplied
-handouts: 418 of 540 evaluation tables read, 352 complete; midsem verified
-for 375 handouts, "no midsem" for 23 (study projects, seminar, lab and
-workshop courses), unknown for 142. 38 handouts have no recognisable table
-and 2 have no text layer; all are flagged. Prerequisites: 31 handouts, of
-which 1 names a course (EEE F437: "Electronic Devices (F-214)"), 4 say none
-("NA") and 26 give only advice. Some files are named for a new-curriculum
-code but contain another course's handout (`BIO_U101` is BIO F101's); these
-mismatches are flagged for the joining step.
+only when the table is complete (95-105%) and clean, and None otherwise; and
+at run time a handout's "no midsem" is withheld when the timetable schedules
+a midsem slot for that course (8 cases: the sources disagree).
+
+**Audit of the evaluation tables (all 540).** The weight column is located
+from the numbers (the vertical run summing to ~100%), not from the header
+label, which pdftotext often prints over another column; a header-less
+fallback reader handles layouts such as "Wt (%)". Weight cells come in many
+notations, all handled: 25 | 25 % | [10%] | 20* | 30*% | 20+10 | 30 (10+20) |
+35 % (70 M) | 30 % (Max. Marks 30) | 30% (60) | 50 (25%). Bugs found and
+fixed in this audit: a letterhead filter deleted every exam row whose date
+read "As per AUGSD"; and marks were rescaled to percent even when only some
+rows had been read, which fabricated weights (ECE F311 showed 37.5 / 41.7 /
+20.8 instead of 15 / 16.67 / 8.33 / 25 / 35). Marks are now converted only
+when the header's stated total equals the marks read.
+
+Result: 452 of 540 schemes read completely; midsem verified for 471
+handouts, "no midsem" for 23 (8 of them withheld at run time, see above),
+unknown for 46. A grounding check confirms that every extracted weight
+appears, as printed, in its handout (0 exceptions). The 88 schemes not
+fully read are listed by file in `validation.json`: 2 scanned PDFs, 17
+known parser failures (a ~100% weight column exists but the rows were not
+all read), and 69 where no ~100% weight column was detected. Spot checks of
+that last group found both irregular handouts (weights run into other text)
+and further notations, so it is not proof of missing data. None of the 88 is
+ever used to claim "no midsem".
+
+Prerequisites: 31 handouts, of which 1 names a course (EEE F437: "Electronic
+Devices (F-214)"), 4 say none ("NA") and 26 give only advice. Some files are
+named for a new-curriculum code but contain another course's handout
+(`BIO_U101` is BIO F101's); these mismatches are flagged for the joining step.
+One handout is another campus's (208_ECE_F314, Hyderabad) and is not used.
 
 ## Build order
 

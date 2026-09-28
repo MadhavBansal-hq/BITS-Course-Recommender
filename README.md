@@ -16,7 +16,7 @@ Status: all deliverables in the brief are implemented; see the table, and
 |---|---|
 | Timetable → section records (`src/ingest/parse_timetable.py`) | Done: 1,718 sections in 723 offerings; 14 tests |
 | Bulletin Part IV → course lists (`src/ingest/parse_bulletin.py`) | Done for *List of Courses* (per-branch core and discipline-elective lists); other Part IV tables only partly structured; 12 tests |
-| Handouts → evaluation, midsem/compre, open book, make-up, attendance, prerequisites (`src/ingest/parse_handouts.py`) | Done: 418 of 540 evaluation schemes read (352 complete); midsem verified for 375, "no midsem" only from complete, clean tables (23); the rest flagged |
+| Handouts → evaluation, midsem/compre, open book, make-up, attendance, prerequisites (`src/ingest/parse_handouts.py`) | Done: 452 of 540 evaluation schemes read completely, every weight grounded in its source; midsem verified for 471; "no midsem" only from complete, clean tables that the timetable does not contradict; the 88 not fully read are listed with reasons in `validation.json` |
 | Semester-wise patterns → named courses, elective slots, core and DEL requirements (`src/ingest/parse_semester_patterns.py`) | Done for all 28 first-degree programmes (IV-3 to IV-30); dual-degree and 2+2 patterns not yet |
 | Programme rules (`src/ingest/parse_programme_rules.py`) | Done: IV-1 category table, the four humanities heads, Regulations 2.04–2.08, timetable registration rules and hour legend, 167 course equivalences |
 | Timetable checks (`src/retrieval/timetable.py`) | Done: slot parsing, class and exam clashes, lunch-hour rule, avoid-hours / free-day, clash-free section search that explains why nothing fits |
