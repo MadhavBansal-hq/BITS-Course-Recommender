@@ -9,7 +9,7 @@ instead of guessing.
 
 ## Status
 
-Work in progress; see the table. Next up: the requirement and eligibility engine. The full design is in [docs/DESIGN.md](docs/DESIGN.md).
+Work in progress; see the table. Next up: the small local language layer (query parsing, semantic matching, explanations). The full design is in [docs/DESIGN.md](docs/DESIGN.md).
 
 | Stage | Status |
 |---|---|
@@ -19,7 +19,7 @@ Work in progress; see the table. Next up: the requirement and eligibility engine
 | Semester-wise patterns → named courses, elective slots, core and DEL requirements (`src/ingest/parse_semester_patterns.py`) | Done for all 28 first-degree programmes (IV-3 to IV-30); dual-degree and 2+2 patterns not yet |
 | Programme rules (`src/ingest/parse_programme_rules.py`) | Done: IV-1 category table, the four humanities heads, Regulations 2.04–2.08, timetable registration rules and hour legend, 167 course equivalences |
 | Timetable checks (`src/retrieval/timetable.py`) | Done: slot parsing, class and exam clashes, lunch-hour rule, avoid-hours / free-day, clash-free section search that explains why nothing fits |
-| Student profile, requirement analysis, eligibility, policy checks | Not started |
+| Requirement and eligibility engine (`src/retrieval/engine.py`) | Done: named courses (CDC / institutional) with status, DEL / HUEL / OPEL requirement vs. progress, and for every offered course its category, eligibility with reasons, stated prerequisites, handout properties and timetable fit; 27 of 28 programmes mapped to their course lists (BBA has none) |
 | LLM layer (intent parsing, matching, explanations) and dashboard | Not started |
 
 `src/retrieval/` and `src/dashboard/` are empty packages reserved for the later
@@ -78,7 +78,8 @@ python -m src.ingest.parse_bulletin    # about a minute (254 pages)
 python -m src.ingest.parse_semester_patterns
 python -m src.ingest.parse_programme_rules
 python -m src.ingest.parse_handouts    # about a minute (540 PDFs)
-python -m pytest                       # 45 tests, about 2 minutes
+python -m src.retrieval.engine examples/profile_cs_2-1.json --out report.json
+python -m pytest                       # 53 tests, about 2 minutes
 python -m pytest -m "not slow"         # skips the full-bulletin test
 ```
 
@@ -116,9 +117,10 @@ verified".
 
 ```
 src/ingest/        parsers: source PDFs → data/processed/*.json
-src/retrieval/     timetable checks; (planned) requirement analysis, eligibility
+src/retrieval/     dataset loader, requirement and eligibility engine, timetable checks
 src/dashboard/     (planned) the student-facing app
 scripts/           investigation scripts (locating bulletin Part IV)
+examples/          example student profile
 tests/             correctness tests against the real PDFs
 docs/              extraction notes, schemas, design
 data/raw/          source PDFs (not committed)

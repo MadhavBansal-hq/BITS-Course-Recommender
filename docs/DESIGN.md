@@ -1,8 +1,7 @@
 # Design
 
 The planned system, mapped to the task brief, and the open questions the data
-has raised so far. Nothing here is built yet beyond the two parsers (see the
-status table in the README).
+has raised so far. Steps 1 and 3-5 and the timetable part of 7 are built; see the README status table.
 
 ## Pipeline
 
@@ -48,6 +47,26 @@ timetable.bits-dvm.org:
    attendance, make-up, each "could not be verified" where the handout is
    silent), a one-line reason it matches, and source citations. A persistent
    bar shows the courses and units picked so far.
+
+## How the engine applies the rules
+
+`src/retrieval/engine.py` takes a profile (programme as named in its semester
+pattern, admission year, semester such as "2-1", completed and current
+courses, optionally the category of completed electives) and reports:
+
+- named courses from the pattern, labelled CDC when they are also in the
+  programme's CORE list, else institutional, with status completed / in
+  progress / overdue / this semester / later; completed and current courses
+  are expanded through the equivalence table;
+- DEL from the pattern footer, HUEL from IV-1, OPEL derived as IV-1's
+  course-work minimum minus named course-work, DEL and HUEL (for B.E.
+  Computer Science: 129 - 94 - 12 - 8 = 15 units, IV-1's own minimum);
+- for each course offered this semester: DEL if in the programme's elective
+  list, HUEL only if its handout says so, otherwise an Open Elective with
+  HUEL status unverified (Regulations 2.05); blocked if completed, current,
+  2026-only, fully cancelled, or a stated prerequisite is missing; plus
+  handout properties and whether any section fits beside the current
+  courses.
 
 ## Open questions
 
