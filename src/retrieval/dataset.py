@@ -80,6 +80,15 @@ def load(root: Path) -> Dataset:
     for s in read("timetable.json"):
         offerings[s["course_code"]].append(s)
         titles.setdefault(s["course_code"], s["title"])
+    # When the handout lists no midsem but the timetable schedules a midsem
+    # slot, the sources disagree: never claim "no midsem" then.
+    for code, hs in handouts.items():
+        if any(x["midsem_date"] for x in offerings.get(code, [])):
+            for h in hs:
+                if h["has_midsem"] is False:
+                    h["has_midsem"] = None
+                    h["has_midsem_basis"] = ("sources disagree: the handout's complete evaluation scheme lists no "
+                                             "midsem, but the timetable schedules a midsem slot")
     equivalent_to: dict[str, set[str]] = defaultdict(set)
     for e in rules.get("equivalent_courses", []):
         for other in e["equivalents"]:

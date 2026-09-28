@@ -109,6 +109,48 @@ def build(root: Path) -> tuple[list[dict], dict]:
         "handouts_from_another_campus": sorted(f"{h['file']} ({h['campus']})" for h in handouts
                                                if h.get("campus") and h["campus"] != (rules.get("data_campus") or {}).get("campus")),
     }
+    # Anti-fabrication checks on handout evaluation tables.
+    # 1. grounding: every weight cell must appear, as printed, in the handout
+    ungrounded = []
+    for h in handouts:
+        f = root / "data" / "raw" / "handouts" / h["file"]
+        if not h["evaluation"] or not f.exists():
+            continue
+        import subprocess
+        text = " ".join(subprocess.run(["pdftotext", "-layout", str(f), "-"], capture_output=True, text=True).stdout.split())
+        for c in h["evaluation"]:
+            if c.get("weight_raw") and " ".join(c["weight_raw"].split()) not in text:
+                ungrounded.append(f"{h['file']}: '{c['weight_raw']}' ({c['name'][:30]}) not found in the source")
+    v["evaluation_weights_not_in_source"] = ungrounded
+    # 3. every evaluation scheme not fully read, with the reason: a weight
+    #    column summing to ~100 exists (parser failure) or not (irregular or
+    #    incomplete scheme in the handout). None of these ever yields "no midsem".
+    from src.ingest.parse_handouts import _lines, _weight_column
+    not_read = []
+    for h in handouts:
+        f = root / "data" / "raw" / "handouts" / h["file"]
+        if h["evaluation_complete"] or not f.exists():
+            continue
+        if not h["text_layer"]:
+            not_read.append(f"{h['file']}: no text layer (scanned)")
+            continue
+        L = [l for _, l in _lines(f)]
+        col = any(_weight_column(L[i:i + 40]) is not None for i, l in enumerate(L)
+                  if re.search(r"evaluation|weightage|\bwt\b", l, re.I))
+        read = f"{h['weight_total']:g}% read" if h["evaluation"] else "nothing read"
+        not_read.append(f"{h['file']}: {read}; " + ("PARSER FAILURE: a weight column summing to ~100% exists"
+                                                     if col else "no weight column summing to ~100% in the text"))
+    v["evaluation_not_fully_read"] = not_read
+    # 2. cross-source: handout midsem verdict vs. the timetable's midsem slot
+    tt_mid = defaultdict(set)
+    for s_ in tt:
+        tt_mid[s_["course_code"]].add(bool(s_["midsem_date"]))
+    v["handout_says_no_midsem_but_timetable_schedules_one"] = sorted(
+        f"{h['course_code']} ({h['file']})" for h in handouts
+        if h["has_midsem"] is False and True in tt_mid.get(h["course_code"], set()))
+    v["handout_lists_midsem_but_timetable_has_none"] = sorted(
+        f"{h['course_code']} ({h['file']})" for h in handouts
+        if h["has_midsem"] and tt_mid.get(h["course_code"]) == {False})
     summary = {k: len(x) for k, x in v.items()}
     return out, {"summary": summary, "details": v}
 

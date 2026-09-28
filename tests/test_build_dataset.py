@@ -39,3 +39,17 @@ def test_other_campus_handouts_are_reported_and_not_used(built):
     from src.retrieval.dataset import load
     assert built[1]["details"]["handouts_from_another_campus"] == ["208_ECE_F314.pdf (Hyderabad)"]
     assert all(h["file"] != "208_ECE_F314.pdf" for h in load(ROOT).handouts.get("ECE F314", []))
+
+
+def test_no_fabricated_weights_and_every_unread_scheme_is_listed(built):
+    v = built[1]["details"]
+    assert v["evaluation_weights_not_in_source"] == []          # every weight appears, as printed, in its handout
+    assert all(("PARSER FAILURE" in x) or ("no weight column" in x) or ("scanned" in x)
+               for x in v["evaluation_not_fully_read"])
+
+
+def test_no_midsem_is_withheld_when_the_timetable_schedules_one():
+    from src.retrieval.dataset import load
+    ds = load(ROOT)
+    h = ds.handouts["CE F331"][0]           # handout: quiz, project, compre (100%); timetable: a midsem slot
+    assert h["has_midsem"] is None and "sources disagree" in h["has_midsem_basis"]
