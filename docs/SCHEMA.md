@@ -99,6 +99,12 @@ exam clashes, handout properties, listed_for_first_degree) and `notes`.
 the matching mode, and ranked results with `unverified` constraints and a
 `why` list of reasons, each with its source.
 
+### `courses.json` and `validation.json`
+
+`python -m src.ingest.build_dataset` merges the outputs above into one
+record per course (the Course entity below, implemented) and writes the
+cross-document validation report; see its module docstring for the checks.
+
 ## Target (planned)
 
 **Source and confidence convention.** Every extracted fact will carry where it

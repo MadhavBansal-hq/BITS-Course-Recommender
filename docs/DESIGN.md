@@ -1,7 +1,7 @@
 # Design
 
 The planned system, mapped to the task brief, and the open questions the data
-has raised so far. Everything except the dashboard is built; see the README status table.
+has raised so far. Everything is built; see the README status table and REQUIREMENTS_TRACE.md.
 
 ## Pipeline
 
