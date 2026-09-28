@@ -39,6 +39,7 @@ from src.retrieval.dataset import Dataset, load
 from src.retrieval.timetable import find_schedules, offering_options, parse_slots
 
 CODE_RE = re.compile(r"\b([A-Z]{2,5})\s?([FGCU]\d{3}[A-Z]?)\b")
+FIT_BUDGET = 20_000   # search nodes per timetable-fit check
 SHORT_CODE_RE = re.compile(r"\(\s*([FGC])\s*-?\s*(\d{3})\s*\)")
 
 
@@ -71,8 +72,8 @@ def _term_key(year: int, term: str) -> tuple[int, int]:
 
 
 class Engine:
-    def __init__(self, ds: Dataset, profile: StudentProfile):
-        self.ds, self.p = ds, profile
+    def __init__(self, ds: Dataset, profile: StudentProfile, check_fit: bool = True):
+        self.ds, self.p, self.check_fit = ds, profile, check_fit
         if profile.programme not in ds.patterns:
             raise ValueError(f"unknown programme {profile.programme!r}; known: {sorted(ds.patterns)}")
         self.pattern = ds.patterns[profile.programme]
@@ -80,10 +81,21 @@ class Engine:
         lists = ds.lists.get(self.heading, {}) if self.heading else {}
         self.core_pool = {c["course_code"] for c in lists.get("core", [])}
         self.del_pool = {c["course_code"] for c in lists.get("discipline_elective", [])}
+        # the programme's own discipline(s): departments with 3+ CORE courses
+        from collections import Counter
+        self.discipline_depts = {d for d, n in Counter(c.split()[0] for c in self.core_pool).items() if n >= 3}
         self.done = self._expand(profile.completed)
         self.now = self._expand(profile.current)
         y, t = profile.semester.split("-")
         self.term = _term_key(int(y), t)
+        self.notes: list[str] = []
+        if profile.minor:
+            self.notes.append(f"Minor '{profile.minor}' is not analysed: minor programme rules are not parsed yet.")
+        if profile.dual_degree:
+            self.notes.append("Dual-degree requirements are not analysed: dual-degree patterns are not parsed yet.")
+        if self.heading is None:
+            self.notes.append(f"No List of Courses heading matches '{profile.programme}', so its CDC and DEL "
+                              "lists are unknown.")
 
     def _expand(self, codes) -> set[str]:
         out = set()
@@ -193,25 +205,34 @@ class Engine:
         if h and h.get("humanities_elective_statement"):
             return "HUEL", f"handout {h['file']}: {h['humanities_elective_statement']['text'][:80]}"
         note = "Regulations 2.05: any other elective counts as Open"
+        areas = (self.ds.rules.get("elective_guidance") or {}).get("humanities_areas", [])
+        if code.split()[0] in areas:
+            return ("OPEL or HUEL (HUEL status could not be verified)",
+                    f"{code.split()[0]} is one of the areas timetable V(A)(f) advises as humanities electives "
+                    f"({', '.join(areas)}), but no document lists HUEL courses")
         if re.match(r"[A-Z]+ G\d", code):
-            note += "; higher-degree course, allowed subject to an AGC CGPA rule not in the dataset (Reg 2.08)"
-        return "OPEL (HUEL status could not be verified)", note
+            note += ("; higher-degree course: one per semester, after the discipline's CDC (timetable V(A)); "
+                     "Reg 2.08 also sets an AGC CGPA rule whose value is not in the dataset")
+        return "OPEL", note
 
     def offered(self, named_rows) -> list[dict]:
         named_codes = {o for r in named_rows if r["status"] != "completed" for o in r["options"]}
         slot_of = {o: f"Y{r['year']} T{r['term']} ({r['status']})" for r in named_rows for o in r["options"]}
+        # Regulations 2.07: some courses are named for specific programmes and
+        # debarred to others; the dataset does not say which, so a course that
+        # no first-degree list or pattern mentions carries a caveat.
+        first_degree = {c for recs in self.ds.lists.values() for cat in recs.values() for c in (r["course_code"] for r in cat)}
+        first_degree |= {o for pat in self.ds.patterns.values() for sl in pat["named"] for o in sl["options"]}
         valid = {int(k) for k in self.ds.rules["timetable_legend"]["hours"]}
         lunch = self.ds.rules["registration"]["lunch_hours"]
         cur_offs = {c: self._live(c) for c in self.p.current if self._live(c)}
-        base = find_schedules(cur_offs, valid, lunch, limit=40) if cur_offs else [{"sections": {}}]
-        base_slots = []
-        for sch in base:
-            slots = set()
-            for c, secs in sch["sections"].items():
-                for s in cur_offs[c]:
-                    if s["section"] in secs:
-                        slots |= parse_slots(s["days_hours"], valid)
-            base_slots.append(slots)
+        st: dict = {}
+        base_ok = bool(find_schedules(cur_offs, valid, lunch, limit=1, max_nodes=FIT_BUDGET, stats=st)) \
+            if cur_offs and self.check_fit else True
+        if not base_ok:
+            self.notes.append("Your current courses have no clash-free, lunch-compliant section combination "
+                              + ("(search completed)" if st.get("complete") else "(search budget reached)")
+                              + "; timetable fit is not assessed.")
         cur_exams = {(w, s[f"{w}_date"], s[f"{w}_session"]): c for c, secs in cur_offs.items()
                      for s in secs[:1] for w in ("midsem", "compre") if s[f"{w}_date"]}
         out = []
@@ -228,19 +249,31 @@ class Engine:
                 every = self.ds.offerings[code]
                 blockers.append("only for 2026 admissions (com_cod >= 5000)"
                                 if all(s["only_for_2026_admissions"] for s in every) else "no open section")
+            guide = self.ds.rules.get("elective_guidance") or {}
+            if (re.match(r"[A-Z]+ G\d", code) and code not in self.del_pool and guide.get("higher_degree_rule")
+                    and code.split()[0] not in self.discipline_depts):
+                blockers.append("higher-degree course of another discipline: timetable V(A) requires having cleared "
+                                "or registered in that discipline's CDC")
             pre = self._prereq(code, h)
             if pre["status"] == "not met":
                 blockers.append(f"prerequisite not met: {', '.join(pre['missing'])}")
             fits, exam_clash = None, []
             if secs and not blockers:
-                opts = [set().union(*(parse_slots(s["days_hours"], valid) for s in o)) for o in offering_options(secs)]
-                fits = any(not (o & b) for o in opts for b in base_slots)
                 exam_clash = [f"{w} {d} {sess} with {cur_exams[(w, d, sess)]}"
                               for w in ("midsem", "compre") if (d := secs[0][f"{w}_date"])
                               and (sess := secs[0][f"{w}_session"]) and (w, d, sess) in cur_exams]
+                if base_ok and not exam_clash and self.check_fit:
+                    st = {}
+                    found = find_schedules({**cur_offs, code: secs}, valid, lunch, limit=1, max_nodes=FIT_BUDGET, stats=st)
+                    # True: a clash-free set of sections exists; False: proven impossible;
+                    # None: search budget reached, not determined
+                    fits = True if found else (False if st["complete"] else None)
+                elif exam_clash:
+                    fits = False
             out.append({
                 "course_code": code, "title": self.ds.titles.get(code), "units": secs[0]["credit_u"] if secs else None,
                 "category": cat, "category_basis": why, "pattern_slot": slot_of.get(code),
+                "listed_for_first_degree": code in first_degree,
                 "eligible": not blockers, "blocked_by": blockers,
                 "prerequisite": pre, "fits_current_timetable": fits, "exam_clashes": exam_clash,
                 "handout": None if not h else {
@@ -265,8 +298,8 @@ class Engine:
                               "list_heading": self.heading, "heading_match": self.heading_score,
                               "discipline_core": [self.pattern["discipline_core_units"], self.pattern["discipline_core_courses"]],
                               "unresolved": self.pattern["unresolved"]},
-                "named": named, "electives": self.electives(named), "offered": self.offered(named),
-                "notes": self.ds.rules.get("gaps", [])}
+                "named": named, "electives": self.electives(named), "offered": (offered := self.offered(named)),
+                "notes": self.notes + self.ds.rules.get("gaps", [])}
 
 
 def main() -> None:

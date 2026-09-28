@@ -89,37 +89,62 @@ def check_selection(selected: list[dict], valid_hours: set[int], lunch_hours: li
 
 
 def find_schedules(offerings: dict[str, list[dict]], valid_hours: set[int], lunch_hours: list[int] | None,
-                   avoid_hours: set[int] = frozenset(), free_day: str | None = None, limit: int = 5) -> list[dict]:
+                   avoid_hours: set[int] = frozenset(), free_day: str | None = None, limit: int = 5,
+                   max_nodes: int = 100_000, stats: dict | None = None) -> list[dict]:
     """Clash-free combinations of sections, one valid pick per offering,
-    honouring the lunch rule and the preferences. Returns up to `limit`,
-    most compact first (fewest distinct teaching days, then fewest slots)."""
+    with no exam clash, a free lunch hour every day, and the preferences
+    honoured. Returns up to `limit`, most compact first (fewest teaching
+    days, then fewest slots).
+
+    Offerings with the fewest options are placed first and every constraint
+    is checked as soon as a pick is added, so dead ends are cut early. The
+    search stops after `max_nodes`; `stats["complete"]` then says whether
+    an empty result means "impossible" (True) or "not determined" (False)."""
     names = list(offerings)
-    options = []
+    options = {}
     for n in names:
         opts = []
         for pick in offering_options(offerings[n]):
-            slots = set().union(*(parse_slots(s.get("days_hours"), valid_hours) for s in pick))
+            slots = frozenset().union(*(parse_slots(s.get("days_hours"), valid_hours) for s in pick))
             if any(h in avoid_hours for _, h in slots) or (free_day and any(d == free_day for d, _ in slots)):
                 continue
             opts.append((pick, slots))
-        options.append(opts)
-    results = []
+        options[n] = opts
+    exams = {n: frozenset((w,) + k for w in ("midsem", "compre")
+                          if offerings[n] and (k := exam_key(offerings[n][0], w))) for n in names}
+    order = sorted(names, key=lambda n: len(options[n]))
+    lunch = list(lunch_hours or [])
+    enough = limit if limit <= 1 else limit * 40
+    results: list[dict] = []
+    state = {"nodes": 0, "complete": True}
 
-    def rec(i, chosen, used):
-        if len(results) >= 200:
-            return
-        if i == len(names):
-            flat = [s for pick, _ in chosen for s in pick]
-            report = check_selection(flat, valid_hours, lunch_hours)
-            if not report["exam_clashes"] and not report["no_free_lunch_hour_on"]:
-                results.append({"sections": {n: [s["section"] for s in p] for n, (p, _) in zip(names, chosen)},
-                                "days": len({d for d, _ in used}), "slots": len(used)})
-            return
-        for pick, slots in options[i]:
-            if not (slots & used):
-                rec(i + 1, chosen + [(pick, slots)], used | slots)
+    def lunch_ok(used, new):
+        return not lunch or all(not all((d, h) in used for h in lunch) for d in {d for d, _ in new})
 
-    rec(0, [], set())
+    def rec(i, chosen, used, ex):
+        if len(results) >= enough:
+            return
+        if state["nodes"] >= max_nodes:
+            state["complete"] = False
+            return
+        state["nodes"] += 1
+        if i == len(order):
+            results.append({"sections": {n: [s["section"] for s in p] for n, p in chosen},
+                            "days": len({d for d, _ in used}), "slots": len(used)})
+            return
+        n = order[i]
+        if ex & exams[n]:
+            return
+        for pick, slots in options[n]:
+            if slots & used:
+                continue
+            new = used | slots
+            if lunch_ok(new, slots):
+                rec(i + 1, chosen + [(n, pick)], new, ex | exams[n])
+
+    rec(0, [], frozenset(), frozenset())
+    if stats is not None:
+        stats.update(state)
     results.sort(key=lambda r: (r["days"], r["slots"]))
     return results[:limit]
 

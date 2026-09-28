@@ -32,7 +32,7 @@ def profile():
 
 @pytest.fixture(scope="module")
 def report(ds, profile):
-    return Engine(ds, profile).report()
+    return Engine(ds, profile).report()          # the one report that runs the timetable-fit search
 
 
 def _offered(rep, code):
@@ -70,26 +70,32 @@ def test_cs_f320_is_a_discipline_elective(report):
 def test_equivalent_courses_count(ds, profile):
     # IS F213 is listed as equivalent to CS F213 (timetable part IX)
     p = replace(profile, current=[c for c in profile.current if c != "CS F213"], completed=profile.completed + ["IS F213"])
-    rep = Engine(ds, p).report()
+    rep = Engine(ds, p, check_fit=False).report()
     (oop,) = [r for r in rep["named"] if r["options"] == ["CS F213"]]
     assert oop["status"] == "completed"
-    assert "currently registered" in _offered(Engine(ds, profile).report(), "EEE F215")["blocked_by"]
+    assert "currently registered" in _offered(Engine(ds, profile, check_fit=False).report(), "EEE F215")["blocked_by"]
 
 
 def test_2026_only_offerings(ds, profile):
     code = next(c for c, secs in ds.offerings.items() if all(s["only_for_2026_admissions"] for s in secs))
-    assert "only for 2026 admissions" in " ".join(_offered(Engine(ds, profile).report(), code)["blocked_by"])
-    assert not any("2026" in b for b in _offered(Engine(ds, replace(profile, admission_year=2026)).report(), code)["blocked_by"])
+    assert "only for 2026 admissions" in " ".join(_offered(Engine(ds, profile, check_fit=False).report(), code)["blocked_by"])
+    assert not any("2026" in b for b in _offered(Engine(ds, replace(profile, admission_year=2026), check_fit=False).report(), code)["blocked_by"])
 
 
 def test_stated_prerequisite(ds, profile, report):
     # EEE F437's handout: "Pre-requisite of the Course : Electronic Devices (F-214)"
     o = _offered(report, "EEE F437")
     assert o["prerequisite"]["missing"] == ["EEE F214"] and not o["eligible"]
-    met = Engine(ds, replace(profile, completed=profile.completed + ["EEE F214"])).report()
+    met = Engine(ds, replace(profile, completed=profile.completed + ["EEE F214"]), check_fit=False).report()
     assert _offered(met, "EEE F437")["prerequisite"]["status"] == "met"
 
 
 def test_unknown_programme_is_an_error(ds, profile):
     with pytest.raises(ValueError):
         Engine(ds, replace(profile, programme="B.E. Imaginary"))
+
+
+def test_timetable_fit_is_decided_or_reported_as_undetermined(report):
+    fits = [o["fits_current_timetable"] for o in report["offered"] if o["eligible"]]
+    assert True in fits and False in fits            # both outcomes occur for this profile
+    assert set(fits) <= {True, False, None}          # None = search budget reached, never guessed
