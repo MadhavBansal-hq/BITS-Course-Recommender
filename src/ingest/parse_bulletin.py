@@ -68,22 +68,11 @@ from pathlib import Path
 
 import pdfplumber
 
-# Physical page range of Part IV in the supplied bulletin.pdf (footers IV-1 ..
-# IV-254), found by scripts/find_bulletin_page_range.py.
-PART_IV_FIRST_PAGE = 209
-PART_IV_LAST_PAGE = 462
+from src.ingest.bulletin_pages import PartIV, locate_part_iv
 
-# Part IV's own table of contents (bulletin physical page 9), in IV pages.
-PART_IV_SECTIONS = [
-    (1, 2, "programme_structure"),
-    (3, 30, "semester_wise_patterns"),
-    (31, 105, "dual_degree_semester_patterns"),
-    (106, 128, "list_of_courses"),
-    (129, 141, "minor_programmes"),
-    (142, 223, "international_2plus2_programmes"),
-    (224, 251, "higher_degree_programmes"),
-    (252, 254, "phd_programme"),
-]
+# Part IV's page range and sections are read from the PDF at run time
+# (src/ingest/bulletin_pages.py): footers give the range, Part IV's own
+# table of contents gives the sections.
 LIST_OF_COURSES = "list_of_courses"
 
 EDGE_MARGIN = 5.0      # pt a column's words may start left of its anchor
@@ -133,7 +122,7 @@ class BulletinCourse:
     credit_u: str | None
     category: str | None            # "core" | "discipline_elective" | None
     list_heading: str | None        # e.g. "COMPUTER SCIENCE"
-    bulletin_section: str | None    # a PART_IV_SECTIONS label
+    bulletin_section: str | None    # a Part IV section kind (bulletin_pages.KINDS)
     alternative_to: str | None = None                   # "X / OR / Y": Y records X
     aliases: list[str] = field(default_factory=list)    # cross-listed codes
     footnote_marker: bool = False                       # "*" on the code or units
@@ -148,18 +137,6 @@ class _ListState:
     heading_open: bool = False
     pending_header: str | None = None
     caps_titles: bool = False  # inside a list whose titles are ALL CAPS
-
-
-def iv_page(physical_page: int) -> int:
-    return physical_page - PART_IV_FIRST_PAGE + 1
-
-
-def section_for(physical_page: int) -> str | None:
-    n = iv_page(physical_page)
-    for first, last, label in PART_IV_SECTIONS:
-        if first <= n <= last:
-            return label
-    return None
 
 
 def _is_heading(s: str) -> bool:
@@ -257,7 +234,7 @@ def _extend(rec: BulletinCourse, text: str) -> None:
     _clean_title(rec)
 
 
-def _parse_column(lines: list[tuple], state: _ListState, section: str | None, page: int):
+def _parse_column(lines: list[tuple], state: _ListState, section: str | None, page: int, iv: PartIV):
     records: list[BulletinCourse] = []
     dropped: list[str] = []
     open_rec: BulletinCourse | None = None
@@ -340,7 +317,7 @@ def _parse_column(lines: list[tuple], state: _ListState, section: str | None, pa
                 bulletin_section=section,
                 alternative_to=alternative_to,
                 footnote_marker=bool(m["star"]) or star_u,
-                source_page=page, source_page_label=f"IV-{iv_page(page)}",
+                source_page=page, source_page_label=f"IV-{iv.iv(page)}",
             )
             _clean_title(rec)
             records.append(rec)
@@ -369,10 +346,13 @@ def _parse_column(lines: list[tuple], state: _ListState, section: str | None, pa
     return records, dropped
 
 
-def parse_bulletin_part_iv(pdf_path: Path, first_page: int = PART_IV_FIRST_PAGE,
-                           last_page: int = PART_IV_LAST_PAGE):
+def parse_bulletin_part_iv(pdf_path: Path, first_page: int | None = None, last_page: int | None = None):
     """Return (courses, pages with column anchors but no course rows,
-    dropped lines as {"page", "text"})."""
+    dropped lines as {"page", "text"}). first_page / last_page select a
+    physical sub-range of Part IV (default: all of it)."""
+    iv = locate_part_iv(Path(pdf_path))
+    first_page = first_page or iv.first_page
+    last_page = last_page or iv.last_page
     courses: list[BulletinCourse] = []
     unparsed_pages: list[int] = []
     dropped: list[dict] = []
@@ -380,7 +360,7 @@ def parse_bulletin_part_iv(pdf_path: Path, first_page: int = PART_IV_FIRST_PAGE,
 
     with pdfplumber.open(pdf_path) as pdf:
         for page in range(first_page, last_page + 1):
-            section = section_for(page)
+            section = iv.section_for(page)
             words = pdf.pages[page - 1].extract_words()
             anchors = _column_boundaries(words) if words else []
             if not anchors:
@@ -388,7 +368,7 @@ def parse_bulletin_part_iv(pdf_path: Path, first_page: int = PART_IV_FIRST_PAGE,
             page_records: list[BulletinCourse] = []
             for lines in _column_lines(words, anchors):
                 state = carried if section == LIST_OF_COURSES else _ListState()
-                recs, drop = _parse_column(lines, state, section, page)
+                recs, drop = _parse_column(lines, state, section, page, iv)
                 page_records += recs
                 dropped += [{"page": page, "text": t} for t in drop]
             if not page_records:
