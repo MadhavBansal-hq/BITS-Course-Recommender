@@ -9,7 +9,7 @@ instead of guessing.
 
 ## Status
 
-Work in progress; see the table. Next up: the small local language layer (query parsing, semantic matching, explanations). The full design is in [docs/DESIGN.md](docs/DESIGN.md).
+Work in progress; see the table. Remaining coverage gaps: dual-degree and 2+2 patterns, minors, and the HUEL course list, which no supplied document contains. The full design is in [docs/DESIGN.md](docs/DESIGN.md).
 
 | Stage | Status |
 |---|---|
@@ -19,8 +19,9 @@ Work in progress; see the table. Next up: the small local language layer (query 
 | Semester-wise patterns → named courses, elective slots, core and DEL requirements (`src/ingest/parse_semester_patterns.py`) | Done for all 28 first-degree programmes (IV-3 to IV-30); dual-degree and 2+2 patterns not yet |
 | Programme rules (`src/ingest/parse_programme_rules.py`) | Done: IV-1 category table, the four humanities heads, Regulations 2.04–2.08, timetable registration rules and hour legend, 167 course equivalences |
 | Timetable checks (`src/retrieval/timetable.py`) | Done: slot parsing, class and exam clashes, lunch-hour rule, avoid-hours / free-day, clash-free section search that explains why nothing fits |
-| Requirement and eligibility engine (`src/retrieval/engine.py`) | Done: named courses (CDC / institutional) with status, DEL / HUEL / OPEL requirement vs. progress, and for every offered course its category, eligibility with reasons, stated prerequisites, handout properties and timetable fit; 27 of 28 programmes mapped to their course lists (BBA has none) |
-| LLM layer (intent parsing, matching, explanations) and dashboard | Not started |
+| Requirement and eligibility engine (`src/retrieval/engine.py`) | Done: named courses (CDC / institutional) with status; DEL / HUEL / OPEL requirement vs. progress; for every offered course its category, eligibility with reasons (completed, current, 2026-only, cancelled, stated prerequisite, higher-degree course of another discipline), handout properties, and an exact timetable-fit check; 27 of 28 programmes mapped to their course lists (BBA has none) |
+| Query layer, local and without an API key (`src/retrieval/query.py`, `semantic.py`, `recommend.py`) | Done: free-text requests → category, constraints (no midsem / compre, no attendance requirement, lenient make-up, open book, project-based, fits timetable, avoid hours, free day) and topic; abbreviations expanded from the data; word-vector matching; verified matches ranked before unverified ones; explanations from fields with sources |
+| Dashboard | Deferred (decided); the CLI prints the same results |
 
 `src/retrieval/` and `src/dashboard/` are empty packages reserved for the later
 stages.
@@ -68,6 +69,10 @@ Everything is derived from BITS's own documents, which are **not** committed
    └── handouts/        # the 540 NNN_DEPT_CODE.pdf files
    ```
 
+4. **Optional, for meaning-based matching:** `pip install -r requirements-nlp.txt`
+   (spaCy and its medium English word vectors, about 40 MB, downloaded from
+   GitHub; no API key). Without it, topics are matched by exact words.
+
 ## Running
 
 From the repository root:
@@ -78,8 +83,9 @@ python -m src.ingest.parse_bulletin    # about a minute (254 pages)
 python -m src.ingest.parse_semester_patterns
 python -m src.ingest.parse_programme_rules
 python -m src.ingest.parse_handouts    # about a minute (540 PDFs)
-python -m src.retrieval.engine examples/profile_cs_2-1.json --out report.json
-python -m pytest                       # 53 tests, about 2 minutes
+python -m src.retrieval.engine examples/profile_cs_2-1.json --out report.json   # about 40 s
+python -m src.retrieval.recommend examples/profile_cs_2-1.json "Suggest DELs related to AI"
+python -m pytest                       # 61 tests, about 3 minutes
 python -m pytest -m "not slow"         # skips the full-bulletin test
 ```
 
@@ -96,6 +102,7 @@ Written to `data/processed/` (not committed; regenerate with the commands above)
 | `semester_patterns.json` | programme | named courses by year and term (with OR alternatives), elective slots and amounts, discipline core / elective requirement from the page footer, anything unresolved |
 | `programme_rules.json` | whole dataset | IV-1 category table, humanities heads, Regulations 2.04–2.08 verbatim, registration rules, hour and exam-session legend, equivalent courses, known gaps |
 | `handouts.json` | handout | evaluation components (name, kind, weight, duration, date, nature), has_midsem / has_compre with the basis for each, open-book components, make-up and attendance text, prerequisites (hard / soft / none stated), page references |
+| `report_<profile>.json` | student | cached engine report used by `recommend` (rebuilt when the profile changes) |
 | `*_needs_verification.json` (one per parser) | flagged item | what the parser saw but could not extract confidently, with page and raw text |
 
 Nothing is silently dropped or guessed: anything uncertain lands in a

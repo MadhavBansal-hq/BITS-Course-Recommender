@@ -24,9 +24,10 @@ hostel listings) the recommender does not need.
 
 **Part IV ("Details of Programmes") is physical pages 209–462** (footers IV-1
 to IV-254, constant offset: IV-n is physical page n + 208).
-`scripts/find_bulletin_page_range.py` finds this from the footers (exactly
-one `IV-n` footer line per page). Part IV's own table of contents (physical
-page 9) splits it into sections; the parser tags every record with one:
+`src/ingest/bulletin_pages.py` finds this at run time from the footers
+(exactly one `IV-n` footer line per page), and reads the sections from Part
+IV's own table of contents (physical page 9); nothing about this edition's
+page numbers is hardcoded. The derived sections:
 
 | IV pages | Section |
 |---|---|
@@ -121,6 +122,15 @@ none for most courses.
   dates must not clash, at most four extra electives. The legend maps hours
   1–10 to clock times (hour 1 = 8–8:50 AM) and gives exam-session times.
 - **Timetable part IX**: 167 equivalences (e.g. IS F213 counts as CS F213).
+- **Timetable part V** (suggestions for choosing electives): take a few
+  Humanities (HUM) and Humanities and Social Science (HSS) courses as
+  electives; a higher-degree course needs the CDC of its discipline cleared or
+  registered, one per semester. The legend (part I) also defines the day codes
+  (M = Monday ... Th = Thursday, S = Saturday).
+- **Bulletin abbreviation legend** (physical page 208): 47 department codes
+  with full names (HSS = Humanities and Social Sciences, PHIL = Philosophy,
+  ...). It does not define what the course-number letters (F, G, C, U) mean,
+  so no level rule is inferred from them.
 - **Gaps.** No document lists the humanities courses themselves: timetable
   part VIII refers to Bulletin Part IV, and Part IV names only the four heads.
   Timetable part VI (prerequisites and restrictions) is only a link to the

@@ -86,6 +86,19 @@ A list of flagged items, one file per parser:
  "source_hint": {"doc": "timetable|bulletin", "page": "<physical page>", "text": "<raw line>"}}
 ```
 
+### Engine report and recommendations
+
+`python -m src.retrieval.engine PROFILE` returns `programme` (pattern page,
+matched list heading), `named` (each named slot: options, titles, year/term,
+category CDC or institutional, status, source), `electives` (DEL / HUEL / OPEL
+required vs. completed, with sources and, for OPEL, the derivation), `offered`
+(every course in the timetable: category and its basis, eligible, blocked_by,
+prerequisite status and source, fits_current_timetable True / False / None,
+exam clashes, handout properties, listed_for_first_degree) and `notes`.
+`python -m src.retrieval.recommend PROFILE "QUERY"` returns the parsed query,
+the matching mode, and ranked results with `unverified` constraints and a
+`why` list of reasons, each with its source.
+
 ## Target (planned)
 
 **Source and confidence convention.** Every extracted fact will carry where it
@@ -142,7 +155,9 @@ extracted from the Regulations and Bulletin Part IV, none assumed):
 }
 ```
 
-**StudentProfile:**
+**StudentProfile** (implemented in `src/retrieval/engine.py`; see
+`examples/profile_cs_2-1.json`; `completed_categories` optionally tags
+completed electives as HUEL / DEL / OPEL):
 
 ```json
 {
