@@ -70,7 +70,9 @@ with st.sidebar.form("profile"):
     dual = st.selectbox("Dual degree (if any)", ["(none)"] + programmes,
                         index=(programmes.index(base.dual_degree) + 1) if base.dual_degree in programmes else 0)
     c1, c2 = st.columns(2)
-    campus = c1.text_input("Campus", value=base.campus)
+    # only campuses the supplied data covers (read from the timetable)
+    campuses = [c for c in [(ds.rules.get("data_campus") or {}).get("campus")] if c]
+    campus = c1.selectbox("Campus", campuses, help="The supplied timetable and handouts cover only this campus.")
     year = c2.number_input("Admission year", 2000, 2100, value=base.admission_year)
     semester = st.text_input("Current semester (year-term, e.g. 2-1)", value=base.semester)
     completed = st.multiselect("Completed courses", all_codes, default=[c for c in base.completed if c in all_codes], format_func=label)

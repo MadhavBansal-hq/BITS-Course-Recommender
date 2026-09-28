@@ -33,3 +33,9 @@ def test_validation_reports_known_cross_document_issues(built):
     assert "BITS F101" in v["pattern_codes_not_in_any_list_or_timetable"]   # timetable prints BITS F101-1
     assert any(s.startswith("BIO G512: bulletin 5, timetable 15") for s in v["units_disagree_bulletin_vs_timetable"])
     assert any("Robotics" in s and "footer used" in s for s in v["programme_requirement_issues"])
+
+
+def test_other_campus_handouts_are_reported_and_not_used(built):
+    from src.retrieval.dataset import load
+    assert built[1]["details"]["handouts_from_another_campus"] == ["208_ECE_F314.pdf (Hyderabad)"]
+    assert all(h["file"] != "208_ECE_F314.pdf" for h in load(ROOT).handouts.get("ECE F314", []))

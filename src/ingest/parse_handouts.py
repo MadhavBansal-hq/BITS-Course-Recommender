@@ -87,6 +87,7 @@ class Handout:
     prerequisites: list[dict] = field(default_factory=list)
     humanities_elective_statement: dict | None = None
     description: dict | None = None              # "Course Description" / "Scope and Objective" text
+    campus: str | None = None                    # from the letterhead, e.g. "Pilani" (208_ECE_F314 is Hyderabad's)
     unresolved: list[str] = field(default_factory=list)
 
 
@@ -288,6 +289,9 @@ def parse_handout(pdf: Path) -> Handout:
         h.text_layer = False
         h.unresolved.append("almost no extractable text (scanned?); nothing parsed")
         return h
+    head = [l for _, l in lines if l.strip()][:8]
+    if (m := re.findall(r"\b(PILANI|GOA|HYDERABAD|DUBAI)\s+CAMPUS\b", " ".join(head), re.I)):
+        h.campus = m[-1].title()        # "BITS, PILANI, HYDERABAD CAMPUS" -> Hyderabad
     for _, line in lines[:80]:
         if h.course_code_in_text is None and (m := re.search(r"Course\s*(?:No\.?|Number|Code)\s*[:\-]\s*(.+)", line, re.I)):
             codes = CODE_RE.findall(m[1])

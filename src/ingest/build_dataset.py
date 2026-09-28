@@ -106,6 +106,8 @@ def build(root: Path) -> tuple[list[dict], dict]:
                                          for pat in patterns for u in pat["unresolved"] if "footer" in u],
         "offered_without_handout": sorted(offered - {h["course_code"] for h in handouts}),
         "handout_file_names_another_course": sorted(u for h in handouts for u in h["unresolved"] if u.startswith("file name")),
+        "handouts_from_another_campus": sorted(f"{h['file']} ({h['campus']})" for h in handouts
+                                               if h.get("campus") and h["campus"] != (rules.get("data_campus") or {}).get("campus")),
     }
     summary = {k: len(x) for k, x in v.items()}
     return out, {"summary": summary, "details": v}

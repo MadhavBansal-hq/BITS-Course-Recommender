@@ -62,8 +62,14 @@ def load(root: Path) -> Dataset:
             titles.setdefault(c["course_code"], c["title"])
             if c["credit_u"]:
                 units.setdefault(c["course_code"], c["credit_u"])
+    rules = read("programme_rules.json")
+    data_campus = (rules.get("data_campus") or {}).get("campus")
     handouts: dict[str, list[dict]] = defaultdict(list)
     for h in read("handouts.json"):
+        # another campus's handout (208_ECE_F314 is Hyderabad's) says nothing
+        # reliable about this campus's offering; build_dataset reports these
+        if data_campus and h.get("campus") and h["campus"] != data_campus:
+            continue
         handouts[h["course_code"]].append(h)
         # A file named for one code may hold another code's handout (the
         # BIO_U101 file is BIO F101's); index it under both, noted.
@@ -74,7 +80,6 @@ def load(root: Path) -> Dataset:
     for s in read("timetable.json"):
         offerings[s["course_code"]].append(s)
         titles.setdefault(s["course_code"], s["title"])
-    rules = read("programme_rules.json")
     equivalent_to: dict[str, set[str]] = defaultdict(set)
     for e in rules.get("equivalent_courses", []):
         for other in e["equivalents"]:
