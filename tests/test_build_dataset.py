@@ -1,0 +1,35 @@
+"""Tests for the merged dataset and its validation report."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from src.ingest.build_dataset import build
+
+ROOT = Path(__file__).resolve().parents[1]
+pytestmark = pytest.mark.skipif(not (ROOT / "data" / "processed" / "handouts.json").exists(),
+                                reason="run the ingest parsers first")
+
+
+@pytest.fixture(scope="module")
+def built():
+    return build(ROOT)
+
+
+def test_merged_course_record(built):
+    courses = {c["course_code"]: c for c in built[0]}
+    oop = courses["CS F213"]
+    assert oop["title"] == {"value": "Object Oriented Programming", "source": "bulletin IV-109"}
+    assert {("COMPUTER SCIENCE", "core")} <= {(l["list_heading"], l["category"]) for l in oop["listings"]}
+    assert any(n["programme"] == "B.E. Computer Science" and (n["year"], n["term"]) == (2, "1") for n in oop["named_in"])
+    h = oop["handouts"][0]
+    assert h["has_midsem"]["value"] is True and h["has_midsem"]["confidence"] == "extracted"
+
+
+def test_validation_reports_known_cross_document_issues(built):
+    v = built[1]["details"]
+    assert v["malformed_codes"] == []
+    assert "BITS F101" in v["pattern_codes_not_in_any_list_or_timetable"]   # timetable prints BITS F101-1
+    assert any(s.startswith("BIO G512: bulletin 5, timetable 15") for s in v["units_disagree_bulletin_vs_timetable"])
+    assert any("Robotics" in s and "footer used" in s for s in v["programme_requirement_issues"])
