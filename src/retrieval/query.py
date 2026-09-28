@@ -25,6 +25,7 @@ CONSTRAINTS = {
     "lenient_makeup": r"\b(lenient|easy|flexible|liberal|relaxed)\s+make[\s\-]?ups?(\s+polic(y|ies))?|make[\s\-]?ups?\s+(is\s+)?(allowed|available|lenient)",
     "open_book": r"\bopen[\s\-]?book",
     "project_based": r"\bproject[\s\-]?(based|heavy|oriented)|\bprojects?\b",
+    "compact": r"\bcompact\b|\b(avoid|no|without|minimi[sz]e)\s+(long\s+)?gaps?",
     "fits_timetable": r"\bfits?\b(\s+(in|into|with))?(\s+my)?(\s+(current\s+)?timetable)?|\bno\s+clash(es)?|\bclash[\s\-]?free",
 }
 
@@ -61,9 +62,12 @@ def parse_query(text: str, legend: dict) -> Query:
         if m:
             q.free_day = days[(m[1] or m[2]).lower()]
             rest = rest[:m.start()] + " " + rest[m.end():]
-    words = [w for w in re.findall(r"[A-Za-z][A-Za-z+\-]*", rest)
+    # hyphenated phrases split into words ("AI-related" -> "AI", "related")
+    words = [w for w in re.findall(r"[A-Za-z][A-Za-z+]*", rest)
              if w.lower() not in {"a", "an", "the", "and", "or", "with", "that", "have", "has", "me", "suggest",
                                   "some", "any", "courses", "course", "related", "to", "for", "about", "in",
-                                  "which", "show", "find", "i", "want", "is", "are", "on", "of", "my", "classes"}]
+                                  "which", "show", "find", "i", "want", "is", "are", "on", "of", "my", "classes",
+                                  "timetable", "schedule", "need", "prefer", "evaluation", "policy", "please",
+                                  "semester", "requirement", "requirements", "something", "one"}]
     q.topic = " ".join(words) or None
     return q
