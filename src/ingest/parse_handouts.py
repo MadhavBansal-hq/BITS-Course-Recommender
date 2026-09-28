@@ -50,6 +50,7 @@ SECTION_KEYS = {
     "makeup": r"make[\s\-]?up",
     "attendance": r"attendance",
     "prerequisite": r"pre[\s\-]?requisites?",
+    "description": r"course\s+description|scope\s+and\s+objectives?|course\s+objectives?",
 }
 
 
@@ -85,6 +86,7 @@ class Handout:
     attendance_policy: dict | None = None
     prerequisites: list[dict] = field(default_factory=list)
     humanities_elective_statement: dict | None = None
+    description: dict | None = None              # "Course Description" / "Scope and Objective" text
     unresolved: list[str] = field(default_factory=list)
 
 
@@ -301,6 +303,8 @@ def parse_handout(pdf: Path) -> Handout:
     h.makeup_policy = _section(lines, "makeup")
     h.attendance_policy = _section(lines, "attendance")
     _prerequisites(lines, h)
+    if (d := _section(lines, "description")) and d["basis"] == "section":
+        h.description = dict(d, text=d["text"][:1500])
     for pno, line in lines:
         if re.search(r"humanities\s+elective|\bHUEL\b", line, re.I):
             h.humanities_elective_statement = {"page": pno, "text": " ".join(line.split())}

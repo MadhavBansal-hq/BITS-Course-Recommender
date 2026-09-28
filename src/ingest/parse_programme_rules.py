@@ -120,6 +120,17 @@ def timetable_parts(tt_pages: list[str]) -> dict:
             "compre_dates_must_not_clash": bool(re.search(r"Comprehensive Examination Dates are not clashing", t)),
             "max_extra_electives": extra[1] if extra else None,
         }
+    if "V" in parts:
+        t, p = text("V")
+        areas = re.search(r"take a few (.+?) courses as electives", t)
+        hd = re.search(r"Registration of Higher Degree Courses as Elective.*?(Students must.*?semester\.)", t)
+        out["elective_guidance"] = {
+            "text": t, "source": {"doc": "timetable", "page": p},
+            "humanities_areas": re.findall(r"\(([A-Z]{2,5})\)", areas[1]) if areas else [],
+            "humanities_areas_sentence": areas[0] if areas else None,
+            "higher_degree_rule": hd[1] if hd else None,
+            "higher_degree_one_per_semester": bool(re.search(r"Only one higher degree course can be taken as elective in a semester", t)),
+        }
     if "VIII" in parts:
         t, p = text("VIII")
         out["humanities_pool"] = {"courses_listed": False, "text": t, "source": {"doc": "timetable", "page": p}}
@@ -139,8 +150,10 @@ def timetable_parts(tt_pages: list[str]) -> dict:
 def hours_and_sessions(tt_pages: list[str]) -> dict:
     """The timetable's own legend: hour numbers -> clock times, exam sessions -> times."""
     lines = [l for page in tt_pages for l in page.splitlines()]
-    hours, sessions, src = {}, {}, None
+    hours, sessions, days = {}, {}, {}
     for i, l in enumerate(lines):
+        if re.search(r"\bDAYS\b", l):
+            days.update({code: name for code, name in re.findall(r"\b([A-Z][a-z]?)\s*=\s*([A-Z][a-z]+day)\b", l)})
         if re.search(r"\bHOURS\b", l) and "timings" in l:
             for nums, times in ((lines[i + 1], lines[i + 2]), (lines[i + 3], lines[i + 4])):
                 ns = re.findall(r"\b\d{1,2}\b", nums)
@@ -149,7 +162,21 @@ def hours_and_sessions(tt_pages: list[str]) -> dict:
                     hours.update({int(n): t for n, t in zip(ns, ts)})
         for m in re.finditer(r"\b(FN\d?|AN\d?):\s*([\d.:]+\s*[AP]\.?M\.?\s*to\s*[\d.:]+\s*[AP]\.?M\.?)", l):
             sessions.setdefault(m[1], m[2])
-    return {"hours": hours, "exam_sessions": sessions, "source": {"doc": "timetable", "section": "legend (8. DAYS, 9. HOURS, 10-11. exam sessions)"}}
+    return {"hours": hours, "days": days, "exam_sessions": sessions, "source": {"doc": "timetable", "section": "legend (8. DAYS, 9. HOURS, 10-11. exam sessions)"}}
+
+
+def department_names(bulletin_pages: list[str]) -> dict:
+    """The bulletin's legend of abbreviations ("HSS  Humanities and Social
+    Sciences"), found by its own "Suffixed to a course number" entry."""
+    for i, page in enumerate(bulletin_pages):
+        if "Suffixed to a course number" in page:
+            names = {}
+            for p in bulletin_pages[max(0, i - 1):i + 1]:
+                for line in p.splitlines():
+                    if (m := re.match(r"^\s*([A-Z][A-Za-z.]{1,7})\s{3,}([A-Z][A-Za-z ,&:()\-]+?)\s*$", line)):
+                        names[m[1]] = m[2]
+            return {"names": names, "source": {"doc": "bulletin", "page": i + 1}}
+    return {"names": {}, "source": None}
 
 
 def build(root: Path) -> dict:
@@ -161,8 +188,10 @@ def build(root: Path) -> dict:
         "humanities": {**humanities_heads(bulletin), "pool": parts.get("humanities_pool")},
         "regulations": regulation_clauses(regs),
         "registration": parts.get("registration"),
+        "elective_guidance": parts.get("elective_guidance"),
         "timetable_legend": hours_and_sessions(tt),
         "equivalent_courses": parts.get("equivalent_courses", []),
+        "department_names": department_names(bulletin),
         "gaps": ["No document in the dataset lists which courses are Humanities Electives: the bulletin "
                  "names four heads, and timetable part VIII refers back to Bulletin Part IV, which lists none. "
                  "A course's HUEL status is therefore 'could not be verified' unless its own handout states it."],
