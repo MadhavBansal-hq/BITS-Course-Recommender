@@ -74,3 +74,39 @@ def test_prerequisites_classified():
 def test_scanned_handout_is_flagged_not_guessed():
     h = _one("MAC_F214")
     assert not h.text_layer and h.has_midsem is None and not h.evaluation
+
+
+def test_weight_notations():
+    from src.ingest.parse_handouts import weight_of
+    cases = {"25": 25, "25 %": 25, "7.5%": 7.5, "[10%]": 10, "20*": 20, "5#": 5, "30 (10+20)": 30,
+             "35 % (70 M)": 35, "30 % (Max. Marks 30)": 30, "30% (60)": 30, "50 (25%)": 25, "20+10": 30,
+             "30*%": 30, "35% (CB)": 35}
+    assert {t: weight_of(t) for t in cases} == {t: float(v) for t, v in cases.items()}
+    assert all(weight_of(t) is None for t in ("90 min", "3 hrs", "05/10", "5-10", "Total"))
+
+
+def test_exam_rows_saying_as_per_augsd_are_kept():
+    # a bare "AUGS" letterhead filter deleted rows whose date cell reads "As per AUGSD"
+    h = _one("ECE_F311")
+    assert _table(h) == [("Quizzes", "quiz", 15.0), ("Weekly Labs", "lab", 16.67), ("Lab Project", "lab", 8.33),
+                         ("Mid-Semester Test", "midsem", 25.0), ("Comprehensive Exam", "compre", 35.0)]
+
+
+def test_marks_rescaled_only_against_a_stated_total():
+    # ECE F211: "Marks (300)"; 75 marks of 300 is 25%. Rescaling a partial read
+    # without a matching stated total once turned 15/16.67/8.33 into 37.5/41.7/20.8.
+    h = _one("ECE_F211")
+    assert h.evaluation_complete and dict((c.name.split()[0], c.weight_pct) for c in h.evaluation)["Midsem"] == 25.0
+    assert any("marks out of 300; converted" in u for u in h.unresolved)
+
+
+def test_weight_column_found_from_the_numbers():
+    # pdftotext printed "Weightage" over "Remarks" (BIO F311) and far right of "%" (BIO G523)
+    assert [c.weight_pct for c in _one("BIO_F311").evaluation] == [35.0, 25.0, 40.0]
+    assert [c.weight_pct for c in _one("BIO_G523").evaluation] == [30.0, 15.0, 15.0, 40.0]
+
+
+def test_headerless_fallback_reader():
+    h = _one("BITS_F415")                         # "Wt (%)" header
+    assert _table(h) == [("Quiz/ Assignment", "assignment", 10.0), ("Project work", "project", 25.0),
+                         ("Mid-Semester Examination", "midsem", 25.0), ("Comprehensive Examination", "compre", 40.0)]

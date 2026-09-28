@@ -32,8 +32,36 @@ ZERO_WIDTH = re.compile(r"[\u200b\u200c\u200d\u2060\ufeff]")
 CODE_RE = re.compile(r"\b([A-Z]{2,5})\s?([FGCU]\d{3}[A-Z]?)\b")
 SHORT_CODE_RE = re.compile(r"\(\s*[FGC]\s*-?\s*\d{3}\s*\)")   # "(F-214)"
 HEADING_RE = re.compile(r"^\s*(?:\d{1,2}\s*[.)]\s*)?(?P<title>[A-Z][A-Za-z &/\-()]{2,45}?)\s*(?::|\s{2,}|$)")
-BOILERPLATE_RE = re.compile(r"BIRLA INSTITUTE|Pilani Campus|Goa Campus|Hyderabad Campus|Dubai Campus|AUGS|AGSR|Division$|^\s*\d{1,3}\s*$")
-WEIGHT_RE = re.compile(r"^(\d{1,3}(?:\.\d+)?)\s*%?\s*[*#]*$")  # "25 %", "7.5%", "20*", "5#"
+# Letterhead lines repeated on every page. Anchored to whole lines: a bare
+# "AUGS" also matched "As per AUGSD" in exam rows and deleted every such
+# midsem / compre row (ECE F311 lost 60% of its table).
+BOILERPLATE_RE = re.compile(r"^(BIRLA INSTITUTE.*|.*\b(Pilani|Goa|Hyderabad|Dubai) Campus\s*|AUGS\s*/\s*AGSR.*|.*Division)$|^\s*\d{1,3}\s*$", re.I)
+WEIGHT_CELL_RE = re.compile(r"^\[?\s*(\d{1,3}(?:\.\d+)?)\s*%?\s*\]?\s*(?:\((.*?)\))?\s*\]?\s*[*#@]*$")
+
+
+def weight_of(token: str) -> float | None:
+    """The percentage a weight cell states; None if the token is not one.
+    A cell is a number, optionally with "%", optionally followed by a
+    bracketed note: 25 | 25 % | 7.5% | [10%] | 20* | 5# | 30 (10+20) |
+    35 % (70 M) | 30 % (Max. Marks 30) | 30% (60). The note is used only
+    when it is itself a percentage, i.e. marks with their share: 50 (25%) -> 25."""
+    t = token.strip()
+    # "20+10" (a component split in two) and "30*%" (footnote before the %)
+    if (sm := re.fullmatch(r"(\d{1,3}(?:\.\d+)?)(?:\s*\+\s*(\d{1,3}(?:\.\d+)?))+\s*%?", t)):
+        parts = [float(x) for x in re.findall(r"\d{1,3}(?:\.\d+)?", t)]
+        return sum(parts)
+    t = re.sub(r"^(\d{1,3}(?:\.\d+)?)\s*[*#]+\s*%", r"\1%", t)
+    m = WEIGHT_CELL_RE.match(t)
+    if not m:
+        return None
+    if m[2] and (pm := re.fullmatch(r"\s*(\d{1,3}(?:\.\d+)?)\s*%\s*", m[2])):
+        return float(pm[1])
+    return float(m[1])
+
+
+WEIGHT_RE = re.compile(r"^(\d{1,3}(?:\.\d+)?)%?[*#]*$")   # kept for callers of the old name
+NEXT_SECTION_RE = re.compile(r"^\s*(\d{1,2}\s*[.)]\s*)?(chamber|consultation|notices?\b|make[\s\-]?up|grading|"
+                             r"academic\s+honesty|course\s+notices|attendance)", re.I)
 KINDS = [  # first match wins; "Mid - semester", "Mid. Semester", "Mid Examination"
     ("midsem", r"\bmid\b|mid\s*[\-.]?\s*(?:sem|term|exam|test)"),
     ("compre", r"compre|comprehensive|end\s*[\-.]?\s*sem|final\s+exam"),
@@ -60,6 +88,7 @@ class Component:
     kind: str
     duration: str = ""
     weight_pct: float | None = None
+    weight_raw: str = ""            # the cell as printed, for grounding checks
     date: str = ""
     nature: str = ""
 
@@ -129,7 +158,7 @@ def _section(lines, key: str):
 
 
 HEADER_LABELS = (("name", r"(?:Evaluation\s+)?Components?|EC\s*No"), ("duration", r"Duration"),
-                 ("weight", r"Wei\w*age|Weight|Marks"), ("date", r"Date"), ("nature", r"Nature|Remarks|Mode"))
+                 ("weight", r"Wei\w*age|Weight|Marks|\bWt\b|\(%\)"), ("date", r"Date"), ("nature", r"Nature|Remarks|Mode"))
 
 
 def _header(lines):
@@ -158,12 +187,46 @@ def _header(lines):
     return None
 
 
-def _assign(token_start: int, token_end: int, cols, token: str = "") -> str:
+def _weight_column(region: list[str]) -> float | None:
+    """Where the weights actually are. pdftotext can print a two-line header's
+    "Weightage" label over another column (BIO F311: over "Remarks"; BIO
+    G523: far right of its "%"), so the column is located from the rows:
+    the vertical run of weight-like numbers that sums to about 100
+    (durations such as 90 and 180 minutes don't)."""
+    toks = []
+    for line in region:
+        if re.search(r"\btotal\b", line, re.I):    # "Total 100" would double the column's sum
+            continue
+        for m in re.finditer(r"\S+(?:\s\S+)*", line):
+            w = weight_of(m.group())
+            if w is not None and w <= 100:
+                toks.append(((m.start() + m.end()) / 2, w, "%" in m.group()))
+    toks.sort()
+    groups, cur = [], []
+    for t in toks:
+        if cur and t[0] - cur[-1][0] > 5:
+            groups.append(cur)
+            cur = []
+        cur.append(t)
+    if cur:
+        groups.append(cur)
+    good = [g for g in groups if len(g) >= 2 and 95 <= sum(v for _, v, _ in g) <= 105]
+    if not good:
+        return None
+    best = max(good, key=lambda g: (sum(pct for _, _, pct in g), len(g)))
+    return sum(c for c, _, _ in best) / len(best)
+
+
+def _assign(token_start: int, token_end: int, cols, token: str = "", weight_pos: float | None = None) -> str:
     centre = (token_start + token_end) / 2
-    if WEIGHT_RE.match(token.replace(" ", "")):
-        for label, _, start in cols:
-            if label == "weight" and start - 4 <= centre <= start + 14:
+    if weight_of(token) is not None:
+        if weight_pos is not None:
+            if abs(centre - weight_pos) <= 6:
                 return "weight"
+        else:
+            for label, _, start in cols:
+                if label == "weight" and start - 4 <= centre <= start + 14:
+                    return "weight"
     if len(cols) > 1 and token_end <= cols[1][2] + 1:
         return "name"
     return min(cols, key=lambda c: abs(c[1] - centre))[0]
@@ -178,6 +241,12 @@ def _evaluation(lines, h: Handout) -> None:
     h.evaluation_page = lines[start][0]
     header_text = " ".join(l for _, l in lines[max(0, start - 2):start + 1])
     uses_marks = bool(re.search(r"\bMarks\b", header_text)) and "%" not in header_text
+    region = []
+    for _, l in lines[start + 1:start + 40]:
+        if NEXT_SECTION_RE.match(l):
+            break
+        region.append(l)
+    weight_pos = _weight_column(region)
     comps: list[Component] = []
     buffer: dict[str, list[str]] = {}    # wrapped text not yet given to a row
 
@@ -191,18 +260,20 @@ def _evaluation(lines, h: Handout) -> None:
 
     for pno, line in lines[start + 1:start + 70]:
         s = line.strip()
+        if NEXT_SECTION_RE.match(line):
+            break
         if not s or BOILERPLATE_RE.search(s) or re.search(r"^\(%\)$|\((?:CB|Close|Closed|Open)\s*/?\s*(?:Book\s*)?/?\s*(?:OB|Open)", s):
             continue
         cells: dict[str, list[str]] = {}
         for m in re.finditer(r"\S+(?:\s\S+)*", line):
-            cells.setdefault(_assign(m.start(), m.end(), cols, m.group()), []).append(m.group())
-        weight = next((float(w[1]) for tok in cells.get("weight", [])
-                       if (w := WEIGHT_RE.match(tok.replace(" ", "")))), None)
+            cells.setdefault(_assign(m.start(), m.end(), cols, m.group(), weight_pos), []).append(m.group())
+        raw_w = next((tok for tok in cells.get("weight", []) if weight_of(tok) is not None), "")
+        weight = weight_of(raw_w) if raw_w else None
         # Rows are often numbered ("2. Comprehensive Exam ..."); a numbered
         # line is only the next section if it carries no weight.
         if weight is None and (_is_heading(line) or re.match(r"^(\*|note\b|#)", s, re.I)):
             break
-        name = re.sub(r"^\(?\d{1,2}[.)]?\s*", "", " ".join(cells.get("name", []))).strip()
+        name = re.sub(r"^\(?\d{1,2}[.)]?\s*", "", " ".join(cells.get("name", []))).strip().strip("[]")
         if weight is None:
             for fld, parts in cells.items():
                 buffer.setdefault(fld, []).extend(parts)
@@ -210,7 +281,7 @@ def _evaluation(lines, h: Handout) -> None:
         if re.search(r"\btotal\b", name, re.I):
             buffer.clear()
             continue
-        row = Component(name=name, kind="other", weight_pct=weight,
+        row = Component(name=name, kind="other", weight_pct=weight, weight_raw=raw_w,
                         duration=" ".join(cells.get("duration", [])), date=" ".join(cells.get("date", [])),
                         nature=" ".join(cells.get("nature", [])))
         # Cells are vertically centred: text between two rows belongs to the
@@ -231,11 +302,24 @@ def _evaluation(lines, h: Handout) -> None:
     for c in comps:
         c.kind = _kind(c.name)
     total = sum(c.weight_pct for c in comps if c.weight_pct is not None)
-    if uses_marks and total and not 95 <= total <= 105:
-        for c in comps:
-            c.weight_pct = round(c.weight_pct * 100 / total, 1) if c.weight_pct is not None else None
-        h.unresolved.append(f"weights given as marks (total {total:g}); converted to percent")
-        total = 100.0
+    # Marks are converted to percent ONLY when the header states the total
+    # and the marks read add up to it. Rescaling whatever rows were read
+    # invented weights: ECE F311 read 3 of its rows (15%, 16.67%, 8.33%) and
+    # rescaled them to 37.5 / 41.7 / 20.8 as a "complete" table.
+    # the stated total may sit on the line below the header: "Marks" / "(300)"
+    below = lines[start + 1][1] if start + 1 < len(lines) and not any(
+        weight_of(t) is not None for t in re.findall(r"\S+(?:\s\S+)*", lines[start + 1][1])) else ""
+    stated = re.search(r"Marks\s*\(?\s*(\d{2,4})\s*\)?", header_text, re.I) or \
+        re.search(r"\(\s*(\d{2,4})\s*\)", header_text + " " + below)
+    pct_given = any("%" in c.weight_raw for c in comps)   # only the weight cells count
+    if uses_marks and not pct_given and total and not 95 <= total <= 105:
+        if stated and abs(total - float(stated[1])) < 0.5:
+            for c in comps:
+                c.weight_pct = round(c.weight_pct * 100 / total, 1) if c.weight_pct is not None else None
+            h.unresolved.append(f"weights given as marks out of {stated[1]}; converted to percent")
+            total = 100.0
+        else:
+            h.unresolved.append(f"weights look like marks (sum {total:g}) with no matching stated total; not converted")
     h.evaluation = comps
     h.weight_total = round(total, 1) if comps else None
     h.evaluation_complete = bool(comps) and 95 <= total <= 105
@@ -243,6 +327,66 @@ def _evaluation(lines, h: Handout) -> None:
         h.unresolved.append(f"evaluation weights sum to {total:g}%, not ~100%")
     h.open_book_components = [c.name for c in comps if re.search(r"open\s*book|\bOB\b", c.nature, re.I)
                               and not re.search(r"clos|\bCB\b", c.nature, re.I)]
+
+
+def _evaluation_fallback(lines, h: Handout) -> bool:
+    """Read an evaluation table without relying on its header, for layouts
+    the header-based reader gets wrong ("Wt (%)" labels, a first column that
+    runs into the second). The weight column is where a run of weights sums
+    to ~100; each line with a weight there is a component, named by its
+    leftmost text; name-only lines join the row with no name of its own,
+    else the row above (vertically centred cells). Accepted only if the
+    result is complete; returns whether it was."""
+    anchors = [i for i, (_, l) in enumerate(lines) if re.search(r"evaluation|weightage|\bwt\b", l, re.I)]
+    for a in anchors:
+        region = []
+        for _, l in lines[a + 1:a + 40]:
+            if NEXT_SECTION_RE.match(l):
+                break
+            region.append(l)
+        wpos = _weight_column(region)
+        if wpos is None:
+            continue
+        comps, pending = [], []
+        for line in region:
+            if not line.strip() or BOILERPLATE_RE.search(line.strip()):
+                continue
+            runs = list(re.finditer(r"\S+(?:\s\S+)*", line))
+            wrun = next((m for m in runs if weight_of(m.group()) is not None
+                         and abs((m.start() + m.end()) / 2 - wpos) <= 6), None)
+            first = runs[0] if runs and runs[0].end() < wpos - 2 and weight_of(runs[0].group()) is None else None
+            name = re.sub(r"^\(?\d{1,2}[.)]?\s*", "", first.group()).strip().strip("[]") if first else ""
+            rest = " ".join(m.group() for m in runs if m is not first and m is not wrun)
+            if wrun is None:
+                if name:
+                    pending.append(name)
+                continue
+            if re.search(r"\btotal\b", name, re.I):
+                continue
+            comp = Component(name=name, kind="other", weight_pct=weight_of(wrun.group()), weight_raw=wrun.group(),
+                             nature=" ".join(re.findall(r"(?:open|closed?)\s*book|\bOB\b|\bCB\b", rest, re.I)))
+            if pending:
+                if not name:
+                    comp.name = " ".join(pending)
+                elif comps:
+                    comps[-1].name = f"{comps[-1].name} {' '.join(pending)}".strip()
+                pending = []
+            comps.append(comp)
+        if pending and comps:
+            comps[-1].name = f"{comps[-1].name} {' '.join(pending)}".strip()
+        total = sum(c.weight_pct or 0 for c in comps)
+        if comps and 95 <= total <= 105 and all(c.name for c in comps):
+            for c in comps:
+                c.kind = _kind(c.name)
+            h.evaluation, h.weight_total, h.evaluation_complete = comps, round(total, 1), True
+            h.evaluation_page = lines[a][0]
+            h.unresolved = [u for u in h.unresolved if not u.startswith(("no evaluation table header",
+                                                                         "evaluation weights sum to"))]
+            h.unresolved.append("evaluation read without its column header (weight column located from the numbers)")
+            h.open_book_components = [c.name for c in comps if re.search(r"open\s*book|\bOB\b", c.nature, re.I)
+                                      and not re.search(r"clos|\bCB\b", c.nature, re.I)]
+            return True
+    return False
 
 
 def _clean_table(h: Handout) -> bool:
@@ -303,6 +447,8 @@ def parse_handout(pdf: Path) -> Handout:
     if h.course_code_in_text and h.course_code.replace(" ", "") not in h.course_code_in_text.replace(" ", ""):
         h.unresolved.append(f"file name says {h.course_code}, handout says {h.course_code_in_text}")
     _evaluation(lines, h)
+    if not h.evaluation_complete:
+        _evaluation_fallback(lines, h)
     _exam_flags(h)
     h.makeup_policy = _section(lines, "makeup")
     h.attendance_policy = _section(lines, "attendance")
