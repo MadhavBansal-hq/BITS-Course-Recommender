@@ -1,0 +1,10 @@
+{
+  "programme": "B.E. Computer Science",
+  "admission_year": 2025,
+  "semester": "2-1",
+  "campus": "Pilani",
+  "completed": ["BITS F103", "BIO F101", "CHEM F101", "MATH F101", "PHY F101", "BITS F101", "BITS K101",
+                "BITS F111", "BITS F112", "CS F111", "MATH F113", "MATH F102", "EEE F111", "BITS F102"],
+  "current": ["MATH F211", "CS F214", "CS F222", "CS F213", "CS F215"],
+  "interests": ["artificial intelligence", "algorithms"]
+}
