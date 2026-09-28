@@ -31,3 +31,7 @@ Thumbs.db
 data/processed/*
 !data/processed/.gitkeep
 *.log
+
+# student profiles saved from the dashboard (personal data)
+profiles/*
+!profiles/.gitkeep
